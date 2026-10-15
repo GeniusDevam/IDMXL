@@ -81,5 +81,13 @@
     "No clean-machine or upgrade qualification",
     "Tray Show/Pause/Exit actions not exercised",
     "55 automated cases are prior engine/protocol evidence; manual smoke does not increase that count"
-  ]
+  ],
+  "rebuilt_bundle": {
+    "status": "passed after stopping the running QA executable",
+    "source_code_commit": "4d1fc6a5621b3a685ef46bbb02ff00fb57bb57ea",
+    "installer_sha256": "c1b2f79b4d7afdfb22739e26b6423d147019905a394d51d058de22ba71804b22",
+    "installer_bytes": 3798994,
+    "signature": "NotSigned",
+    "reinstalled_after_css_only_change": false
+  }
 }
