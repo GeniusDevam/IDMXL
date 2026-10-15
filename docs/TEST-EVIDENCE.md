@@ -56,3 +56,9 @@ The generated development CycloneDX inventory includes 353 resolved/embedded/pla
 
 The actual installed `idmxl.exe` also passed four selected end-to-end cases: conditional ranges, protected/redacted signed URL, durable native-host/private-network policy, and pause/resume reuse. These repeat four existing methods against the installed artifact rather than increasing the count of distinct test cases.
 
+## Opt-in adaptive experiment
+
+After adding the experimental CLI controller, the full suite passed again: 16 Rust tests, 36 ordinary Python methods plus the separately passed resource method, and 2 Node cases (55 distinct top-level cases in total). The ordinary Python invocation reports 37 methods with the resource method skipped; that resource result is recorded above. New unit cases cover multi-sample bounds, non-improving trials/cooldown and sustained regression. Additional HTTP cases check adaptive bytes/hash, changed-identity rejection and preservation of the single-request one-use contract.
+
+`scripts/benchmark-adaptive.py` compares fixed-one to adaptive-max-four on generated 16 MiB data, with an explicit artificial 524,288-byte/s limit per request. On Windows 11 build 26200, Intel64 Family 6 Model 142 Stepping 10 / 8 logical CPUs, observed times were 34.299 s and 14.331 s, peak outstanding body requests 1 and 4, with matching SHA-256 `341aacac661ccb210720bedaa9ead5d668fe5ea41a73532fc147c71e34040df1`. Only one warm run per mode was measured under development-machine load. The first fixture counter incorrectly counted already-finished responses during post-body sleep and was corrected before recording this evidence. This does not qualify shared-bandwidth/disk/HTTP2 tuning or establish a general/browser speedup. See `docs/evidence/adaptive-benchmark.json` for exact inputs/results.
+

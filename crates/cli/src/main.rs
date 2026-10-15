@@ -53,6 +53,11 @@ enum Command {
             help = "Aggregate bytes per second for this job; zero is unlimited"
         )]
         speed_limit: u64,
+        #[arg(
+            long,
+            help = "Experimentally tune 1..connections for uncapped conditional ranges"
+        )]
+        adaptive: bool,
     },
     /// List the newest 1,000 jobs as redacted JSON.
     List,
@@ -125,6 +130,7 @@ fn run() -> Result<()> {
             connections,
             retries,
             speed_limit,
+            adaptive,
         } => {
             let stop = Arc::new(AtomicBool::new(false));
             let signal = stop.clone();
@@ -135,6 +141,7 @@ fn run() -> Result<()> {
                     connections: connections as usize,
                     retries: retries as u32,
                     speed_limit_bytes: speed_limit,
+                    adaptive,
                     stop,
                 },
             )?)?

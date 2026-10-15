@@ -1,3 +1,4 @@
+mod adaptive;
 pub mod engine;
 mod fault;
 pub mod model;
@@ -19,7 +20,8 @@ pub fn capabilities() -> serde_json::Value {
         "zlib":version.libz_version(),"nghttp2":version.nghttp2_version(),"sqlite":rusqlite::version(),
         "protocols":version.protocols().collect::<Vec<_>>(),
         "credential_storage":if cfg!(windows){"Windows DPAPI"}else{"fixture build: public URLs only"},
-        "extent_bytes":"1048576","maximum_connections":4,"adaptive_parallelism":false,
+        "extent_bytes":"1048576","maximum_connections":4,"adaptive_parallelism":true,
+        "adaptive_scope":"experimental CLI opt-in; uncapped conditional ranges only",
         "production_ready":false
     })
 }

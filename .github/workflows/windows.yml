@@ -32,4 +32,6 @@ jobs:
         shell: pwsh
         run: |
           cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          New-Item -ItemType Directory -Path apps/desktop/src-tauri/binaries -Force | Out-Null
+          Copy-Item -LiteralPath target/debug/idmxl.exe -Destination apps/desktop/src-tauri/binaries/idmxl-x86_64-pc-windows-msvc.exe -Force
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings

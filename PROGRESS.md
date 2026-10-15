@@ -32,7 +32,8 @@ Updated 15 October 2026. This file is the continuation record; checked items des
 - [x] Actual 4,294,967,553-byte transfer, final hash verification and publication through a 397-character Unicode path.
 - [ ] Disk-full, permissions, reparse races and removable/network filesystem qualification.
 - [x] Numeric/HTTP-date Retry-After and persistent origin cooldowns across restarts and other queued jobs.
-- [ ] Durable retry-attempt accounting, adaptive concurrency and acceleration benchmarks.
+- [x] Opt-in adaptive admission controller, bounded 1..4, multi-sample decisions/backoff and controlled benchmark with verified bytes.
+- [ ] Durable retry-attempt accounting, default/UI adaptive integration and broad acceleration benchmarks.
 - [x] Automatic named queues, priority, one-time schedules/deadlines, checkpoint-based rotation and per-job/global queue speed caps.
 - [ ] Recurring schedules, strict quotas, dynamic/global multi-job budgets and metered-network policy.
 
@@ -50,7 +51,7 @@ Build and test helpers, the adopted source PDF/plan, architecture decisions, dep
 - [x] Desktop queue controls, schedule editor, themes, system tray, Ctrl+N and explicit reveal-in-folder.
 - [x] Bounded JSON file-job batch import with input deduplication and per-entry results.
 - [x] Schema v3; idle-engine upgrade guard and pre-migration v1/v2 snapshots. Future versions are rejected.
-- [x] Thirteen Rust tests, thirty-three ordinary Python fixture tests and two extension tests pass. The separate real large-file case also passes (49 top-level cases in total).
+- [x] Sixteen Rust tests, thirty-six ordinary Python fixture tests and two extension tests pass. The separate real large-file case also passes (55 top-level cases in total).
 - [x] TypeScript production build and native/engine formatting and Clippy checks pass.
 - [x] Per-user NSIS installer built. CLI VCRuntime dependency fixed; final PE imports contain no external VCRUNTIME140 DLL requirement.
 - [x] Installer smoke on this development machine: isolated installation, expected resources and installed-engine doctor pass.
@@ -60,6 +61,8 @@ Build and test helpers, the adopted source PDF/plan, architecture decisions, dep
 - [x] Windows CI workflow, reproducible test/build/setup helpers, media experiment and release/recovery documentation saved.
 
 The media experiment proves only the recorded generated MOV/RGB + WAV/PCM path. It does not implement the Media release, qualify streaming codecs/HDR or establish extractor/site support. The helper and Python are not bundled in the Core installer. The installer is unsigned; no update endpoint or production signing key is configured.
+
+The opt-in adaptive CLI controller starts at one admission, averages two one-second samples, probes one extra slot only within the configured maximum, rejects non-improving trials, backs off on sustained regressions and holds at one after throttling/retry trouble. Capped/default/desktop queues retain fixed admission. A generated 16 MiB localhost fixture with an artificial 512 KiB/s per-request bottleneck completed in 34.299 s fixed-one versus 14.331 s adaptive-max-four, peaking at four outstanding body requests. This is one declared scenario, not a browser comparison or general acceleration guarantee. Exact machine/limits/results are in `docs/evidence/adaptive-benchmark.json`.
 
 ## Later release gates
 

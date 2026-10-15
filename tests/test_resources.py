@@ -18,9 +18,11 @@ class ResourceTests(unittest.TestCase):
         total=(1<<32)+257
         scratch=ROOT / ".test-output";scratch.mkdir(exist_ok=True)
         self.assertGreater(shutil.disk_usage(scratch).free,6<<30,"At least 6 GiB free is required")
-        block=bytes(65536);digest=hashlib.sha256()
-        for _ in range(total//len(block)):digest.update(block)
-        digest.update(block[:total%len(block)]);expected=digest.hexdigest()
+        block_size=65536
+        def block_at(index):return hashlib.sha256(index.to_bytes(8,"little")).digest()*(block_size//32)
+        digest=hashlib.sha256()
+        for index in range(total//block_size):digest.update(block_at(index))
+        digest.update(block_at(total//block_size)[:total%block_size]);expected=digest.hexdigest()
         class Handler(http.server.BaseHTTPRequestHandler):
             protocol_version="HTTP/1.1"
             def log_message(self,*_):pass
@@ -28,13 +30,15 @@ class ResourceTests(unittest.TestCase):
                 start=0;end=total-1;byte_range=self.headers.get("Range")
                 if byte_range:start,end=map(int,byte_range.removeprefix("bytes=").split("-"));end=min(end,total-1)
                 self.send_response(206 if byte_range else 200)
-                self.send_header("ETag",'"large-zero-v1"');self.send_header("Content-Length",str(end-start+1))
+                self.send_header("ETag",'"large-position-pattern-v1"');self.send_header("Content-Length",str(end-start+1))
                 if byte_range:self.send_header("Content-Range",f"bytes {start}-{end}/{total}")
                 self.end_headers()
-                remaining=end-start+1
+                remaining=end-start+1;position=start
                 try:
                     while remaining:
-                        count=min(remaining,len(block));self.wfile.write(block[:count]);remaining-=count
+                        index,within=divmod(position,block_size)
+                        count=min(remaining,block_size-within)
+                        self.wfile.write(block_at(index)[within:within+count]);remaining-=count;position+=count
                 except OSError:pass
         server=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
         threading.Thread(target=server.serve_forever,daemon=True).start()
@@ -67,5 +71,5 @@ class ResourceTests(unittest.TestCase):
                 self.assertEqual(result["sha256"],expected);self.assertEqual(destination.stat().st_size,total)
                 print(f"\nResource fixture: {total} bytes, SHA256 {expected}, path {len(str(destination))} characters",flush=True)
                 evidence=ROOT / ".local/resource-evidence.json";evidence.parent.mkdir(exist_ok=True)
-                evidence.write_text(json.dumps({"total_bytes":str(total),"sha256":expected,"path_characters":len(str(destination)),"elapsed_seconds":round(time.monotonic()-started,2),"state":result["state"]},indent=2),encoding="utf-8")
+                evidence.write_text(json.dumps({"total_bytes":str(total),"sha256":expected,"path_characters":len(str(destination)),"elapsed_seconds":round(time.monotonic()-started,2),"state":result["state"],"fixture":"Distinct SHA-256-derived pattern per 64 KiB block, including offset bits above 4 GiB"},indent=2),encoding="utf-8")
         finally:server.shutdown();server.server_close()

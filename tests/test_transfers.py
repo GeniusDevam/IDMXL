@@ -171,6 +171,26 @@ class TransferTests(unittest.TestCase):
     def test_conditional_parallel_ranges(self):
         self.assert_completed(self.add(), "ranged")
 
+    def test_adaptive_ranges_keep_hash_and_identity_contract(self):
+        job=self.add()
+        result=self.command("run",job["id"],"--connections","4","--adaptive")
+        self.assertEqual(result["state"],"completed");self.assertEqual(result["sha256"],DIGEST)
+        self.assertEqual(hashlib.sha256(Path(result["destination"]).read_bytes()).hexdigest(),DIGEST)
+
+    def test_adaptive_flag_never_replays_a_one_use_source(self):
+        with Fixture.guard:before=sum(n for (path,_),n in Fixture.counters.items() if path=="/unknown")
+        job=self.add("/unknown",replayable=False)
+        result=self.command("run",job["id"],"--connections","4","--adaptive")
+        self.assertEqual(result["sha256"],DIGEST)
+        with Fixture.guard:after=sum(n for (path,_),n in Fixture.counters.items() if path=="/unknown")
+        self.assertEqual(after-before,1)
+
+    def test_adaptive_ranges_still_reject_changed_resource(self):
+        job=self.add("/changed")
+        self.command("run",job["id"],"--connections","4","--adaptive",success=False)
+        self.assertFalse(Path(job["destination"]).exists())
+        self.assertEqual(self.command("show",job["id"])["error"],"resource_changed")
+
     def test_range_ignored_falls_back_to_sequential(self):
         self.assert_completed(self.add("/ignore"), "sequential")
 

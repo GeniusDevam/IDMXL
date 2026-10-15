@@ -25,6 +25,7 @@ pub struct RunOptions {
     pub connections: usize,
     pub retries: u32,
     pub speed_limit_bytes: u64,
+    pub adaptive: bool,
     pub stop: Arc<AtomicBool>,
 }
 impl Default for RunOptions {
@@ -33,6 +34,7 @@ impl Default for RunOptions {
             connections: 2,
             retries: 2,
             speed_limit_bytes: 0,
+            adaptive: false,
             stop: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -339,7 +341,11 @@ impl Engine {
             0
         };
         let mut token = 0usize;
-        let mut concurrency = connections;
+        let mut adaptive = (options.adaptive && options.speed_limit_bytes == 0)
+            .then(|| crate::adaptive::Controller::new(connections));
+        let mut concurrency = adaptive.as_ref().map_or(connections, |t| t.limit());
+        let mut sample_time = Instant::now();
+        let mut sample_bytes = durable;
         let mut origin_retry_until = Instant::now();
         while cursor < total || !pending.is_empty() || !active.is_empty() {
             if self.should_stop(&job.id, options)? {
@@ -397,6 +403,18 @@ impl Engine {
                 .values()
                 .map(|(handle, _)| handle.get_ref().bytes)
                 .sum();
+            let received = durable.saturating_add(in_flight);
+            if let Some(controller) = adaptive.as_mut()
+                && sample_time.elapsed() >= Duration::from_secs(1)
+            {
+                controller.sample(
+                    received.saturating_sub(sample_bytes) as f64
+                        / sample_time.elapsed().as_secs_f64(),
+                );
+                concurrency = controller.limit();
+                sample_time = Instant::now();
+                sample_bytes = received;
+            }
             meter.update(
                 &self.store,
                 &job.id,
@@ -460,7 +478,13 @@ impl Engine {
                         task.ready = Instant::now() + delay;
                         if error == "server_throttled" {
                             concurrency = 1;
+                            if let Some(controller) = adaptive.as_mut() {
+                                controller.throttle();
+                            }
                             origin_retry_until = origin_retry_until.max(task.ready);
+                        } else if let Some(controller) = adaptive.as_mut() {
+                            controller.throttle();
+                            concurrency = 1;
                         }
                         pending.push_back(task);
                         continue;

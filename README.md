@@ -8,6 +8,7 @@ A Windows download manager in early development. The first milestone is a real R
 - Single-request mode by default. An explicit `--replayable` option enables probing, strong-validator checks and up to four concurrent byte ranges.
 - Durable 1 MiB extents, pause/resume, process-crash recovery, and verification of saved extents before reuse.
 - Bounded range retries, numeric/HTTP-date Retry-After and persisted origin cooldowns.
+- Experimental CLI `run <id> --connections 4 --adaptive` tunes uncapped conditional ranges within the selected ceiling. Defaults and rate-capped jobs retain fixed admission.
 - SHA-256 validation, no-overwrite publication, recovery across rename/database boundaries, and Internet-zone attachment metadata on Windows.
 - Persistent, redacted JSON history, live received/durable bytes, speed and ETA.
 - Automatic named queues, priorities, one-time UTC schedules/deadlines, checkpoint-based queue rotation, and per-job/global queue rate ceilings. One job runs at a time.
@@ -15,7 +16,7 @@ A Windows download manager in early development. The first milestone is a real R
 - An original Tauri/React Windows interface with add/start/pause/cancel, search, schedules, tray, themes and reveal-in-folder. Detached engine processes keep downloads running when the window is hidden/closed.
 - Idle-only schema migrations with pre-migration SQLite snapshots, a per-user NSIS installer build and dependency/notice inventory tooling.
 
-This is a development milestone, not a completed Core release. Adaptive tuning, recurring schedules, strict quotas, signed updates and the Media/Extended releases remain open. Browser installation/click-through and installer clean-machine/upgrade/uninstall qualification remain open. The controlled 8K MOV/PCM remux experiment is documented but not bundled as a media feature. Fixed parallelism has not been benchmarked as faster than a browser. See [PROGRESS.md](PROGRESS.md) for the full remaining gates.
+This is a development milestone, not a completed Core release. Default/UI adaptive integration and broad benchmarks, recurring schedules, strict quotas, signed updates and the Media/Extended releases remain open. Browser installation/click-through and installer clean-machine/upgrade/uninstall qualification remain open. The controlled 8K MOV/PCM remux experiment is documented but not bundled as a media feature. The adaptive experiment uses an artificial localhost per-request bottleneck and establishes no general or browser speed advantage. See [PROGRESS.md](PROGRESS.md) for the full remaining gates.
 
 ## Open the desktop preview
 

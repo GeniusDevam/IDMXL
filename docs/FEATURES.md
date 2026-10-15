@@ -4,7 +4,7 @@ Status on 15 October 2026. "Partial" means a useful subset exists; it does not s
 
 | ID | Capability | Current evidence/status |
 |---|---|---|
-| F01 | Acceleration | Partial: fixed 1-4 conditional ranges; adaptation and benchmarks pending. |
+| F01 | Acceleration | Partial: fixed 1-4 conditional ranges plus experimental CLI adaptive admission; generated per-request-bottleneck benchmark passed. Default/UI integration and wider/shared-bottleneck/HTTP2/disk qualification pending. |
 | F02 | Pause/resume/retry | Partial: verified resume, bounded retries, HTTP-date/numeric Retry-After and persistent origin cooldowns; durable attempt counters pending. |
 | F03 | Recovery | Partial: process-kill and publication tests; full fault/power-loss qualification pending. |
 | F04 | Queues/priorities | Partial: automatic named queues, priorities, checkpoint-based rotation and queue pause/resume; one active job. |

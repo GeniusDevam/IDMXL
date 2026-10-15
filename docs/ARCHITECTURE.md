@@ -20,7 +20,7 @@ Final verification records a publication intent with expected size, computed has
 
 ## ADR-004: actual scope of the first milestone
 
-The original milestone used one manually run file job and fixed range concurrency. Subsequent work adds automatic scheduling, browser handoff, live progress, migrations and installer generation; see ADR-007 onward. Adaptive tuning, per-extent retry-attempt persistence, full Media/Extended functionality and signed updates remain pending. Zero software licence fees do not establish binary distribution compliance; see DEPENDENCIES.md.
+The original milestone used one manually run file job and fixed range concurrency. Subsequent work adds automatic scheduling, browser handoff, live progress, migrations and installer generation; see ADR-007 onward. Default/UI adaptive tuning, per-extent retry-attempt persistence, full Media/Extended functionality and signed updates remain pending. An experimental opt-in adaptive CLI controller has a bounded fixture/benchmark. Zero software licence fees do not establish binary distribution compliance; see DEPENDENCIES.md.
 
 ## ADR-005: local secrets and source provenance
 
@@ -49,4 +49,8 @@ Receivers count accepted bytes separately from extent commits. At approximately 
 Schema v3 adds queue policies, runtime counters, durable handoff IDs, origin deadlines and service ordering. An idle engine lock is required before upgrading an existing profile. VACUUM INTO produces a version-labelled snapshot before the older schema changes; origin backfill and schema-v3 changes share a transaction. Future schema versions are rejected. Backups are local, retain DPAPI-protected URLs, and do not constitute a cross-machine portable export.
 
 The per-user NSIS installer bundles the desktop, engine, original extension and setup instructions. Both executables use static VCRuntime linkage with Windows' UCRT; PE import inspection checks the extra VCRUNTIME DLL is absent. Updater/signing, clean-machine, upgrade/uninstall and licence review gates are distinct. The resolved CycloneDX inventory includes build/test packages and flags missing notice texts; it is not a completed distribution audit.
+
+## ADR-010: qualify adaptive admission separately
+
+`run --adaptive` is experimental and opt-in, restricted to uncapped conditional range jobs. It starts at one and uses pairs of one-second goodput samples, one-slot trials, a minimum trial gain, conservative cooldowns and sustained-regression reduction. Active leases drain normally; identity validation, positional writes and journal boundaries are unchanged. Retry/throttle trouble reduces admission to one, and Retry-After still governs actual request admission. The configured maximum is never exceeded. One-use/sequential sources are not probed or replayed by this flag. Rate-capped jobs and desktop queues keep their established fixed behavior until dynamic rate allocation is separately qualified.
 

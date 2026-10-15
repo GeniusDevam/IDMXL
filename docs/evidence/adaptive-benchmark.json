@@ -1,0 +1,23 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+  "logical_cpus": 8,
+  "bytes": "16777216",
+  "per_request_fixture_bytes_per_second": "524288",
+  "runs": [
+    {
+      "mode": "fixed_one",
+      "seconds": 34.299,
+      "peak_active_requests": 1,
+      "sha256": "341aacac661ccb210720bedaa9ead5d668fe5ea41a73532fc147c71e34040df1"
+    },
+    {
+      "mode": "adaptive_max_four",
+      "seconds": 14.331,
+      "peak_active_requests": 4,
+      "sha256": "341aacac661ccb210720bedaa9ead5d668fe5ea41a73532fc147c71e34040df1"
+    }
+  ],
+  "observed_ratio": 2.393,
+  "limitations": "One warm development-machine localhost run per mode, with an artificial per-request bottleneck. Not a browser comparison or universal speedup, and not shared-bandwidth/disk/H2 tuning qualification."
+}
