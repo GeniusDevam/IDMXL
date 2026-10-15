@@ -81,7 +81,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(body[i:i + 32768])
                 self.wfile.flush()
                 if path == "/slow" and len(body) > 1:
-                    time.sleep(0.025)
+                    time.sleep(getattr(self.server, "chunk_delay", 0.025))
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
 
@@ -278,6 +278,7 @@ class TransferTests(unittest.TestCase):
         self.command("run", job["id"], success=False)
         self.assertTrue(list(self.directory.glob(".idmxl-*.part")))
 
+    @unittest.skipUnless(os.name == "nt", "DPAPI token storage is a Windows capability")
     def test_signed_url_is_redacted_and_protected_at_rest(self):
         token = "idmxl-secret-should-not-appear-7391"
         job = self.add("/file?token=" + token)

@@ -10,8 +10,24 @@ A Windows download manager in early development. The first milestone is a real R
 - Bounded retries for eligible range-transfer failures, numeric Retry-After handling, and optional per-job speed limiting.
 - SHA-256 validation, no-overwrite publication, recovery across rename/database boundaries, and Internet-zone attachment metadata on Windows.
 - Persistent, redacted JSON history; a single active engine per state directory.
+- An original Tauri/React Windows interface with add/start/pause/cancel, search, summary counts and hash details. Downloads run in a separate CLI process and history survives closing/reopening the window.
 
 This is a development milestone, not a completed Core release. Adaptive tuning, automatic multi-job scheduling, browser handoff, media acquisition, installation and signed updates are not yet implemented. NTFS is the intended first production filesystem; real power-loss and clean-machine qualification are pending. Fixed parallelism has not been benchmarked as faster than a browser.
+
+## Open the desktop preview
+
+For the already-built local copy, double-click `Start-IDMXL.cmd`. The preview uses the generated test history from native QA; the generated test file is under `.local/` and is not committed to Git.
+
+To build from a fresh clone, also install Node.js 20.19+ or 22.12+ and a supported WebView2 Runtime, then run:
+
+```powershell
+.\scripts\build.ps1
+.\scripts\start.ps1
+```
+
+`scripts/build.ps1 -Release` builds a release preview. `-Bundle` is a future installer-development path; its NSIS output, signing, clean-machine behavior and upgrade/uninstall contract are not yet qualified. The development launcher works after building in the current checkout. Release builds place the engine alongside the app; source control excludes generated binaries and frontend output.
+
+In the app, add an HTTP(S) file URL, choose an existing destination folder, optionally enable reusable-link probing or enter a trusted digest, then press Start on its row. One job runs at a time. Progress currently shows durable checkpoint bytes, not unflushed in-flight bytes; sequential jobs may show no byte progress until their full request is checkpointed. Leave probing disabled for uncertain one-use links.
 
 ## Build
 
@@ -52,6 +68,8 @@ Cancel preserves partial files and prevents further running of that job. The cur
 - `crates/engine`: transport, identity validation, positional writes, SQLite journal and publication recovery.
 - `crates/cli`: JSON command-line interface and interrupt handling.
 - `tests`: deterministic HTTP integration fixtures and failure scenarios.
+- `apps/desktop`: React interface, restrictive Tauri capabilities and native commands.
+- `scripts`: build, launch and validation helpers. They prefer normal installed tools and can also use this workspace's local Rust install without global PATH changes.
 - `docs`: adopted plan, architecture decisions, test evidence and dependency policy.
 
 ## Development policy

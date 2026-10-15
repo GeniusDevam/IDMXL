@@ -210,7 +210,8 @@ impl Handler for Receiver {
             return Ok(0);
         }
         if (300..400).contains(&self.headers.status) {
-            return Ok(data.len());
+            // Redirect bodies are unnecessary. The caller validates Location explicitly.
+            return Ok(0);
         }
         let (offset, limit) = match self.mode {
             Mode::Probe => {

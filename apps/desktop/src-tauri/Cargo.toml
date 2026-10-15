@@ -1,0 +1,20 @@
+[package]
+name = "idmxl-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+idmxl-engine = { path = "../../../crates/engine" }
+serde_json = "1.0"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

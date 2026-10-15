@@ -1,5 +1,5 @@
 BEGIN IMMEDIATE;
-CREATE TABLE jobs (
+CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     source BLOB NOT NULL,
     display_url TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE jobs (
     publication_file_id TEXT,
     created INTEGER NOT NULL
 );
-CREATE TABLE extents (
+CREATE TABLE IF NOT EXISTS extents (
     job_id TEXT NOT NULL REFERENCES jobs(id),
     generation INTEGER NOT NULL,
     offset INTEGER NOT NULL,

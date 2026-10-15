@@ -27,9 +27,9 @@ Status on 15 October 2026. "Partial" means a useful subset exists; it does not s
 | F21 | Expired-link refresh | Pending. |
 | F22 | Antivirus | Partial: Windows origin-zone metadata; scanner invocation/status pending. |
 | F23 | ZIP preview | Pending, Extended. |
-| F24 | Clipboard/drag/CLI | Partial: functional JSON CLI; desktop/clipboard integration under development. |
-| F25 | Progress/history | Partial: durable progress, redacted persistent history and actionable error codes. |
-| F26 | Interface | Desktop shell under development. |
+| F24 | Clipboard/drag/CLI | Partial: functional JSON CLI and desktop form; clipboard/drag integration pending. |
+| F25 | Progress/history | Partial: desktop history/search, durable progress and error codes; in-flight bytes, speed and ETA pending. |
+| F26 | Interface | Partial: native desktop preview with job controls and summary cards; tray/themes/customization pending. |
 | F27 | Languages/accessibility | Pending qualification; English baseline. |
 | F28 | Installation/updates | Pending. |
 | F29 | Completion actions | Pending. |

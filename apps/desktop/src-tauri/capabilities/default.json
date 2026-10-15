@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Local download manager window; only native save dialog access.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-save"]
+}

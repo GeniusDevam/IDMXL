@@ -1,0 +1,719 @@
+import React, { useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import "./styles.css";
+
+type Job = {
+  id: string;
+  source: string;
+  destination: string;
+  name: string;
+  state: string;
+  generation: number;
+  total_bytes: string | null;
+  durable_bytes: string;
+  mode: string;
+  replayable: boolean;
+  sha256: string | null;
+  error: string | null;
+  file_available: boolean;
+};
+type Filter = "all" | "active" | "completed";
+const activeStates = new Set(["downloading", "pausing", "verifying"]);
+const native = isTauri();
+
+function bytes(value: string | bigint | null) {
+  if (value === null) return "Unknown size";
+  const n = typeof value === "bigint" ? value : BigInt(value);
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let divisor = 1n,
+    index = 0;
+  while (n / divisor >= 1024n && index < units.length - 1) {
+    divisor *= 1024n;
+    index++;
+  }
+  const tenths = (n * 10n) / divisor;
+  return `${tenths / 10n}${index ? `.${tenths % 10n}` : ""} ${units[index]}`;
+}
+
+function percent(job: Job) {
+  if (!job.total_bytes || BigInt(job.total_bytes) === 0n)
+    return job.state === "completed" ? 100 : 0;
+  return Math.min(
+    100,
+    Number((BigInt(job.durable_bytes) * 100n) / BigInt(job.total_bytes)),
+  );
+}
+
+function Icon({ name, size = 20 }: { name: string; size?: number }) {
+  const paths: Record<string, React.ReactNode> = {
+    arrow: (
+      <>
+        <path d="M12 3v12m-5-5 5 5 5-5" />
+        <path d="M4 16v4h16v-4" />
+      </>
+    ),
+    grid: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </>
+    ),
+    activity: <path d="M3 12h4l3-8 4 16 3-8h4" />,
+    check: <path d="m5 12 4 4L19 6" />,
+    plus: <path d="M12 5v14M5 12h14" />,
+    search: (
+      <>
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m16 16 5 5" />
+      </>
+    ),
+    file: (
+      <>
+        <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+        <path d="M14 3v6h6M8 14h8M8 17h5" />
+      </>
+    ),
+    pause: (
+      <>
+        <path d="M8 5v14M16 5v14" />
+      </>
+    ),
+    play: <path d="m8 4 12 8-12 8Z" />,
+    close: <path d="m6 6 12 12M18 6 6 18" />,
+    shield: (
+      <>
+        <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z" />
+        <path d="m8 12 3 3 5-6" />
+      </>
+    ),
+    folder: <path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9H3Z" />,
+    info: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6M12 7h.01" />
+      </>
+    ),
+  };
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name] || paths.file}
+    </svg>
+  );
+}
+
+function App() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [form, setForm] = useState(false);
+  const [url, setUrl] = useState("");
+  const [destination, setDestination] = useState("");
+  const [digest, setDigest] = useState("");
+  const [replayable, setReplayable] = useState(false);
+  const [working, setWorking] = useState("");
+  const [selected, setSelected] = useState<Job | null>(null);
+  const [showAbout, setShowAbout] = useState(false);
+  const [caps, setCaps] = useState<Record<string, unknown> | null>(null);
+  const modalRef = useRef<HTMLDialogElement>(null);
+  const oldFocus = useRef<HTMLElement | null>(null);
+
+  async function refresh() {
+    if (!native) return;
+    try {
+      setJobs(await invoke<Job[]>("list_jobs"));
+    } catch {
+      setError(
+        "The download history could not be read. Check that the app can access its data folder.",
+      );
+    }
+  }
+  useEffect(() => {
+    void refresh();
+    if (native)
+      void invoke<Record<string, unknown>>("capabilities")
+        .then(setCaps)
+        .catch(() => {});
+    const timer = window.setInterval(() => void refresh(), 750);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (form) {
+      oldFocus.current = document.activeElement as HTMLElement;
+      modalRef.current?.showModal();
+    } else {
+      modalRef.current?.close();
+      oldFocus.current?.focus();
+    }
+  }, [form]);
+  useEffect(() => {
+    if (selected) setSelected(jobs.find((j) => j.id === selected.id) ?? null);
+  }, [jobs]);
+
+  const active = jobs.filter((j) => activeStates.has(j.state));
+  const completed = jobs.filter((j) => j.state === "completed");
+  const queued = jobs.filter((j) =>
+    ["queued", "paused", "failed"].includes(j.state),
+  );
+  const completedBytes = completed.reduce(
+    (sum, j) => sum + BigInt(j.durable_bytes),
+    0n,
+  );
+  const visible = jobs.filter(
+    (j) =>
+      (filter === "all" ||
+        (filter === "active"
+          ? activeStates.has(j.state)
+          : j.state === "completed")) &&
+      `${j.name} ${j.source}`.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  async function action(job: Job, kind: "start" | "pause" | "cancel") {
+    setWorking(job.id);
+    setError("");
+    try {
+      await invoke(
+        kind === "start" ? "start_job" : "control_job",
+        kind === "start"
+          ? { id: job.id }
+          : { id: job.id, action: kind === "pause" ? "paused" : "canceled" },
+      );
+      await refresh();
+    } catch (e) {
+      setError(friendly(e));
+    } finally {
+      setWorking("");
+    }
+  }
+  async function chooseDestination() {
+    let name = "download.bin";
+    try {
+      name = decodeURIComponent(new URL(url).pathname.split("/").pop() || name);
+    } catch {
+      /* User may still be typing. */
+    }
+    const chosen = await save({ title: "Save download as", defaultPath: name });
+    if (chosen) setDestination(chosen);
+  }
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setWorking("new");
+    setError("");
+    try {
+      await invoke<Job>("add_job", {
+        url,
+        destination,
+        replayable,
+        expectedSha256: digest || null,
+      });
+      setForm(false);
+      setUrl("");
+      setDestination("");
+      setDigest("");
+      setReplayable(false);
+      await refresh();
+    } catch (e) {
+      setError(friendly(e));
+    } finally {
+      setWorking("");
+    }
+  }
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <a
+          className="brand"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            setFilter("all");
+          }}
+          aria-label="IDMXL, all downloads"
+        >
+          <span className="brand-mark">
+            <Icon name="arrow" size={23} />
+          </span>
+          <strong>
+            IDM<span>XL</span>
+          </strong>
+        </a>
+        <div className="workspace-label">YOUR WORKSPACE</div>
+        <nav aria-label="Download views">
+          {(
+            [
+              ["all", "grid", "All downloads", jobs.length],
+              ["active", "activity", "In progress", active.length],
+              ["completed", "check", "Completed", completed.length],
+            ] as const
+          ).map(([value, icon, title, count]) => (
+            <button
+              key={value}
+              className={`nav-item ${filter === value ? "current" : ""}`}
+              onClick={() => setFilter(value)}
+              aria-current={filter === value ? "page" : undefined}
+            >
+              <Icon name={icon} />
+              <span>{title}</span>
+              <small>{count}</small>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-note">
+          <span className="status-dot" />
+          Local by design
+          <p>
+            Your files travel directly
+            <br />
+            from the source to your PC.
+          </p>
+        </div>
+        <button
+          className="about-button"
+          onClick={() => setShowAbout(!showAbout)}
+        >
+          <Icon name="info" size={17} />
+          About this preview<span>0.1</span>
+        </button>
+      </aside>
+
+      <main>
+        <header className="topbar">
+          <div className="breadcrumb">
+            Workspace <span>/</span> Downloads
+          </div>
+          <span className="preview-label">EARLY PREVIEW</span>
+        </header>
+        <div className="content">
+          <section className="page-heading">
+            <div>
+              <div className="eyebrow">A LITTLE MORE CONTROL.</div>
+              <h1>Your downloads.</h1>
+              <p>Pick up where you left off.</p>
+            </div>
+            <button
+              className="primary"
+              disabled={!native}
+              onClick={() => setForm(true)}
+            >
+              <Icon name="plus" />
+              New download
+            </button>
+          </section>
+          {!native && (
+            <div className="notice">
+              <Icon name="info" />
+              <div>
+                <strong>Desktop preview</strong>
+                <p>
+                  Open the Windows app to add and manage downloads. This browser
+                  preview shows the interface.
+                </p>
+              </div>
+            </div>
+          )}
+          {error && (
+            <div className="error-message" role="alert">
+              <span>{error}</span>
+              <button onClick={() => setError("")} aria-label="Dismiss error">
+                <Icon name="close" size={17} />
+              </button>
+            </div>
+          )}
+          {showAbout && (
+            <section className="about-panel">
+              <strong>A dependable foundation, in progress.</strong>
+              <p>
+                This preview supports HTTP and HTTPS file downloads, verified
+                checkpoints, pause/resume and SHA-256 checks. One file runs at a
+                time. Media downloading, browser capture, scheduling and
+                automatic updates are still in development.
+              </p>
+              <small>
+                {caps
+                  ? `libcurl ${caps.libcurl} · ${caps.tls} · ${caps.credential_storage}`
+                  : "No account required. Your download history stays on this PC."}
+              </small>
+            </section>
+          )}
+          <section className="stats" aria-label="Download summary">
+            {[
+              [
+                "activity",
+                "In progress",
+                active.length.toString(),
+                "Working on it",
+              ],
+              [
+                "check",
+                "Completed",
+                completed.length.toString(),
+                "Ready when you are",
+              ],
+              [
+                "folder",
+                "Downloaded",
+                bytes(completedBytes),
+                "Saved to your PC",
+              ],
+              [
+                "pause",
+                "Waiting",
+                queued.length.toString(),
+                "Start when you choose",
+              ],
+            ].map(([icon, label, value, note]) => (
+              <div className="stat" key={label}>
+                <div className="stat-label">
+                  <span>{label}</span>
+                  <Icon name={icon} size={18} />
+                </div>
+                <div className="stat-value">{value}</div>
+                <small>{note}</small>
+              </div>
+            ))}
+          </section>
+          <section className="download-panel" aria-labelledby="downloads-title">
+            <div className="panel-toolbar">
+              <h2 id="downloads-title">
+                {filter === "all"
+                  ? "All downloads"
+                  : filter === "active"
+                    ? "In progress"
+                    : "Completed"}
+                <span>{visible.length}</span>
+              </h2>
+              <div className="search">
+                <Icon name="search" size={17} />
+                <input
+                  aria-label="Search downloads"
+                  placeholder="Find a download…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+            {visible.length ? (
+              <div className="job-list">
+                {visible.map((job) => (
+                  <article className="job" key={job.id}>
+                    <div
+                      className={`file-icon ${job.state === "completed" ? "finished" : ""}`}
+                    >
+                      <Icon
+                        name={job.state === "completed" ? "check" : "file"}
+                        size={25}
+                      />
+                    </div>
+                    <div className="job-content">
+                      <button
+                        className="job-name"
+                        onClick={() =>
+                          setSelected(selected?.id === job.id ? null : job)
+                        }
+                      >
+                        {job.name}
+                      </button>
+                      <p className="job-source">{job.source}</p>
+                      <div
+                        className="progress"
+                        role="progressbar"
+                        aria-label={`${job.name} downloaded`}
+                        aria-valuenow={percent(job)}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <span style={{ width: `${percent(job)}%` }} />
+                      </div>
+                      <div className="job-meta">
+                        <span>
+                          {bytes(job.durable_bytes)} / {bytes(job.total_bytes)}
+                        </span>
+                        <span className={`job-state ${job.state}`}>
+                          {job.state === "completed" && !job.file_available
+                            ? "File unavailable"
+                            : job.state.replaceAll("_", " ")}
+                        </span>
+                      </div>
+                      {job.error && (
+                        <p className="job-error">{friendly(job.error)}</p>
+                      )}
+                    </div>
+                    <div className="job-actions">
+                      {activeStates.has(job.state) ? (
+                        <button
+                          className="icon-button"
+                          title="Pause download"
+                          aria-label={`Pause ${job.name}`}
+                          disabled={
+                            working === job.id || job.state === "pausing"
+                          }
+                          onClick={() => void action(job, "pause")}
+                        >
+                          <Icon name="pause" />
+                        </button>
+                      ) : (
+                        !["completed", "canceled"].includes(job.state) && (
+                          <button
+                            className="icon-button"
+                            title={
+                              active.length
+                                ? "Pause the current download before starting another"
+                                : "Start or resume"
+                            }
+                            aria-label={`Start ${job.name}`}
+                            disabled={Boolean(working) || active.length > 0}
+                            onClick={() => void action(job, "start")}
+                          >
+                            <Icon name="play" />
+                          </button>
+                        )
+                      )}
+                      {!["completed", "canceled", "publishing"].includes(
+                        job.state,
+                      ) && (
+                        <button
+                          className="icon-button subtle"
+                          title="Cancel, keeping partial files"
+                          aria-label={`Cancel ${job.name}`}
+                          disabled={working === job.id}
+                          onClick={() => void action(job, "cancel")}
+                        >
+                          <Icon name="close" size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">
+                <div className="empty-art">
+                  <span />
+                  <Icon
+                    name={filter === "completed" ? "check" : "arrow"}
+                    size={35}
+                  />
+                  <span />
+                </div>
+                <h3>
+                  {search
+                    ? "No matching downloads"
+                    : filter === "completed"
+                      ? "A home for your finished files."
+                      : filter === "active"
+                        ? "Nothing running right now."
+                        : "Your next download starts here."}
+                </h3>
+                <p>
+                  {search
+                    ? "Try a different filename or source."
+                    : "Add a file link, choose where to save it, and take it from there."}
+                </p>
+                {!search && filter === "all" && (
+                  <button
+                    className="secondary"
+                    disabled={!native}
+                    onClick={() => setForm(true)}
+                  >
+                    <Icon name="plus" size={17} />
+                    Add your first download
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="panel-footer">
+              <Icon name="shield" size={16} />
+              <span>Verified checkpoints. A safer way to resume.</span>
+              <span className="local-badge">ON YOUR DEVICE</span>
+            </div>
+          </section>
+          {selected && (
+            <section className="details">
+              <div>
+                <h2>Download details</h2>
+                <button
+                  className="icon-button"
+                  aria-label="Close download details"
+                  onClick={() => setSelected(null)}
+                >
+                  <Icon name="close" size={18} />
+                </button>
+              </div>
+              <dl>
+                <dt>Saved to</dt>
+                <dd>{selected.destination}</dd>
+                <dt>Transfer</dt>
+                <dd>
+                  {selected.mode === "ranged"
+                    ? "Verified byte ranges"
+                    : "Single stream"}
+                </dd>
+                <dt>SHA-256</dt>
+                <dd>{selected.sha256 || "Available after verification"}</dd>
+                <dt>Job</dt>
+                <dd>{selected.id}</dd>
+              </dl>
+            </section>
+          )}
+          <footer className="page-footer">
+            A fresh start for your download folder.<span>IDMXL / WINDOWS</span>
+          </footer>
+        </div>
+      </main>
+
+      <dialog
+        ref={modalRef}
+        onCancel={() => setForm(false)}
+        onClose={() => setForm(false)}
+      >
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="dialog-heading">
+            <div>
+              <div className="eyebrow">MAKE ROOM FOR SOMETHING NEW</div>
+              <h2>New download</h2>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Close new download"
+              onClick={() => setForm(false)}
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+          <label>
+            File URL
+            <input
+              autoFocus
+              type="url"
+              required
+              maxLength={16384}
+              placeholder="https://example.com/file.zip"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </label>
+          <label>
+            Save as
+            <div className="destination-input">
+              <input
+                required
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+                placeholder="Choose a file location"
+              />
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => void chooseDestination()}
+              >
+                Browse
+              </button>
+            </div>
+          </label>
+          <label>
+            Expected SHA-256 <small>optional</small>
+            <input
+              pattern="[a-fA-F0-9]{64}"
+              value={digest}
+              onChange={(e) => setDigest(e.target.value)}
+              placeholder="A trusted hash from the file's publisher"
+            />
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={replayable}
+              onChange={(e) => setReplayable(e.target.checked)}
+            />
+            <span>
+              Allow probing and parallel requests
+              <small>
+                For reusable file links. Leave off for one-time download links.
+              </small>
+            </span>
+          </label>
+          <p className="form-note">
+            Files are added to your list first. Choose Start when you’re ready.
+            Existing files are never replaced automatically.
+          </p>
+          {error && (
+            <p className="inline-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="form-actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setForm(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary"
+              type="submit"
+              disabled={working === "new"}
+            >
+              {working === "new" ? "Adding…" : "Add download"}
+              <Icon name="arrow" size={17} />
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </div>
+  );
+}
+
+function friendly(error: unknown): string {
+  const code = String(error).replace(/^Error:\s*/, "");
+  const messages: Record<string, string> = {
+    destination_exists:
+      "A file already exists at that location. Choose a different name.",
+    destination_folder_missing:
+      "That folder does not exist. Choose an existing folder.",
+    invalid_filename:
+      "That filename is not supported on Windows. Choose another name.",
+    invalid_url: "Enter a valid file URL.",
+    unsupported_protocol: "Use an HTTP or HTTPS file link.",
+    engine_busy:
+      "A download is already running. Pause it before starting another.",
+    resource_changed:
+      "The source file changed. Start again to fetch a consistent version.",
+    digest_mismatch:
+      "The file did not match the expected SHA-256. It has not been published.",
+    server_throttled: "The server asked us to wait. Try this download later.",
+    interrupted: "The previous session ended. Resume to verify and continue.",
+    publication_failed:
+      "The final file could not be saved. Check its destination and try again.",
+    publication_identity_mismatch:
+      "The destination has changed. Your existing file has been preserved.",
+    url_credentials_unsupported:
+      "Password-bearing URLs are not supported in this preview.",
+    invalid_sha256: "SHA-256 must contain exactly 64 hexadecimal characters.",
+    engine_binary_missing:
+      "The download engine is missing. Build IDMXL using the repository's desktop script.",
+  };
+  return (
+    messages[code] ??
+    "This operation could not finish. Your existing files have been preserved. Technical code: " +
+      code
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<App />);

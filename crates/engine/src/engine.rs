@@ -277,19 +277,8 @@ impl Engine {
             }
         }
         file.set_len(total)?;
-        let mut pending = VecDeque::new();
-        let mut offset = 0;
-        while offset < total {
-            if !valid.contains(&offset) {
-                pending.push_back(Work {
-                    offset,
-                    length: BLOCK.min(total - offset),
-                    attempt: 0,
-                    ready: Instant::now(),
-                });
-            }
-            offset += BLOCK.min(total - offset);
-        }
+        let mut pending: VecDeque<Work> = VecDeque::new();
+        let mut cursor = 0;
         let multi = Multi::new();
         let mut active: HashMap<usize, (Easy2Handle<Receiver>, Work)> = HashMap::new();
         let connections = if options.speed_limit_bytes > 0 {
@@ -305,20 +294,38 @@ impl Engine {
             0
         };
         let mut token = 0usize;
-        while !pending.is_empty() || !active.is_empty() {
+        let mut concurrency = connections;
+        let mut origin_retry_until = Instant::now();
+        while cursor < total || !pending.is_empty() || !active.is_empty() {
             if self.should_stop(&job.id, options)? {
                 return Ok(());
             }
-            let candidates = pending.len();
-            for _ in 0..candidates {
-                if active.len() >= connections {
+            while active.len() < concurrency {
+                if Instant::now() < origin_retry_until {
                     break;
                 }
-                let task = pending.pop_front().expect("nonempty candidate queue");
-                if task.ready > Instant::now() {
-                    pending.push_back(task);
-                    continue;
-                }
+                let task = if let Some(index) =
+                    pending.iter().position(|task| task.ready <= Instant::now())
+                {
+                    pending.remove(index).expect("known retry index")
+                } else if !pending.is_empty() {
+                    break;
+                } else {
+                    while cursor < total && valid.contains(&cursor) {
+                        cursor += BLOCK.min(total - cursor);
+                    }
+                    if cursor == total {
+                        break;
+                    }
+                    let task = Work {
+                        offset: cursor,
+                        length: BLOCK.min(total - cursor),
+                        attempt: 0,
+                        ready: Instant::now(),
+                    };
+                    cursor += task.length;
+                    task
+                };
                 let mode = Mode::Range {
                     offset: task.offset,
                     length: task.length,
@@ -387,6 +394,10 @@ impl Engine {
                             bail!("server_throttled");
                         };
                         task.ready = Instant::now() + delay;
+                        if error == "server_throttled" {
+                            concurrency = 1;
+                            origin_retry_until = origin_retry_until.max(task.ready);
+                        }
                         pending.push_back(task);
                         continue;
                     }

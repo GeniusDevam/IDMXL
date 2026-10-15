@@ -8,6 +8,8 @@ Native transfer dependencies include libcurl, zlib and nghttp2. Windows Schannel
 
 Before public release: generate an SBOM; check every SPDX expression, bundled native source, compiler runtime and installer component; produce notices and matching source/build materials where required; record signing and distribution decisions. Do not ship yt-dlp/FFmpeg/other media helpers until their exact builds and notices have been qualified.
 
+The desktop milestone adds Tauri 2.12.4, tauri-plugin-dialog 2.8.3, React/React DOM 19.3.1, TypeScript, Vite 8.3.4 and their transitives. Its separate Rust graph is locked in apps/desktop/src-tauri/Cargo.lock; npm versions and integrity hashes are locked in apps/desktop/package-lock.json. The save-dialog plugin also introduces a filesystem plugin transitively; the frontend is not granted general filesystem permissions. Prettier 3.6.2 was used as a temporary development formatter and is not a shipped runtime.
+
 Official API references consulted while implementing:
 
 - https://docs.rs/curl/0.4.51/curl/
