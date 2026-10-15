@@ -38,7 +38,7 @@ TLS qualification uses an ephemeral private CA, unique issuer, signed CRL served
 
 ## Real size/path fixture
 
-An optimized engine downloaded and independently SHA-256-verified **4,294,967,553 bytes** through a **397-character Unicode path**, with 64-bit decimal history counters and no-overwrite publication. Hash: `199b874f2938490d620b4e901ac31b8d343b9aa149d9d1d38b85958ac3eae50d`. The source was generated zeros over a local HTTP range fixture; the file was removed with its isolated temporary test folder. The recorded transfer/verification elapsed time was 242.69 seconds under other build/test load, not a performance benchmark. Evidence is in `docs/evidence/resource-evidence.json`.
+An optimized engine downloaded and independently SHA-256-verified **4,294,967,553 bytes** through a **397-character Unicode path**, with 64-bit decimal history counters and no-overwrite publication. The strengthened fixture generates a distinct SHA-256-derived pattern per 64 KiB block, incorporating high offset bits, so wrapped/misplaced writes cannot pass as they could with an all-zero preallocated file. Hash: `f69b5a49cb06ef8cfb5c521d994afe33b74dbb0358fd15e8d56dbc3a2cbba46e`. The file was removed with its isolated temporary test folder. The recorded transfer/verification elapsed time was 242.45 seconds under other build/test load, not a performance benchmark. Evidence is in `docs/evidence/resource-evidence.json`. An earlier all-zero fixture also passed but is not the final offset-integrity evidence.
 
 An earlier debug/loaded-machine resource attempt timed out; a later interrupted fixture run also hit a subprocess deadline after a long execution interruption/delay whose cause was not qualified. Those are not counted as passes. The stable optimized resource run and subsequent complete ordinary suite passed. This does not qualify disk-full behavior, filesystem/reparse races, every large-file size or physical power-loss safety.
 
@@ -54,6 +54,8 @@ The installed native app opened and its accessibility tree exposed the existing 
 
 The generated development CycloneDX inventory includes 353 resolved/embedded/platform/installer components, 516 collected root notice files and 44 entries needing further notice review. Some missing files are optional packages for other platforms. This inventory is broader than the runtime and is not a completed licence audit. Python/media helper binaries are not in the Core installer; compiler/runtime, native source, WebView2 and NSIS terms still need release review.
 
+The inventory was validated with jsonschema 4.26.0 against the official CycloneDX 1.6 BOM/SPDX/JSF schemas, with zero schema errors. This checks structure, not licence clearance or exact runtime-only completeness. The validator and schemas were workspace-only development tools.
+
 The actual installed `idmxl.exe` also passed four selected end-to-end cases: conditional ranges, protected/redacted signed URL, durable native-host/private-network policy, and pause/resume reuse. These repeat four existing methods against the installed artifact rather than increasing the count of distinct test cases.
 
 ## Opt-in adaptive experiment
@@ -61,4 +63,8 @@ The actual installed `idmxl.exe` also passed four selected end-to-end cases: con
 After adding the experimental CLI controller, the full suite passed again: 16 Rust tests, 36 ordinary Python methods plus the separately passed resource method, and 2 Node cases (55 distinct top-level cases in total). The ordinary Python invocation reports 37 methods with the resource method skipped; that resource result is recorded above. New unit cases cover multi-sample bounds, non-improving trials/cooldown and sustained regression. Additional HTTP cases check adaptive bytes/hash, changed-identity rejection and preservation of the single-request one-use contract.
 
 `scripts/benchmark-adaptive.py` compares fixed-one to adaptive-max-four on generated 16 MiB data, with an explicit artificial 524,288-byte/s limit per request. On Windows 11 build 26200, Intel64 Family 6 Model 142 Stepping 10 / 8 logical CPUs, observed times were 34.299 s and 14.331 s, peak outstanding body requests 1 and 4, with matching SHA-256 `341aacac661ccb210720bedaa9ead5d668fe5ea41a73532fc147c71e34040df1`. Only one warm run per mode was measured under development-machine load. The first fixture counter incorrectly counted already-finished responses during post-body sleep and was corrected before recording this evidence. This does not qualify shared-bandwidth/disk/HTTP2 tuning or establish a general/browser speedup. See `docs/evidence/adaptive-benchmark.json` for exact inputs/results.
+
+## Fresh-checkout CI
+
+The first private Windows CI run passed the engine/recovery/protocol/frontend stage but exposed a missing staged CLI executable in the native check. Local build helpers had already prepared that file, masking the setup omission. The corrected workflow explicitly copies the newly built CLI into Tauri's target-named sidecar location before native checks. The corrected run is tracked separately; no green-CI claim is made until it finishes.
 
