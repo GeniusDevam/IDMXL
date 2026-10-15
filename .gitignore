@@ -1,0 +1,15 @@
+/target/
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/target/
+/.local/
+*.part
+*.db
+*.db-shm
+*.db-wal
+*.log
+/.tools/
+/.test-output/
+__pycache__/
+*.pyc
+
