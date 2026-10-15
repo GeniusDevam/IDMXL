@@ -66,5 +66,5 @@ After adding the experimental CLI controller, the full suite passed again: 16 Ru
 
 ## Fresh-checkout CI
 
-The first private Windows CI run passed the engine/recovery/protocol/frontend stage but exposed a missing staged CLI executable in the native check. Local build helpers had already prepared that file, masking the setup omission. The corrected workflow explicitly copies the newly built CLI into Tauri's target-named sidecar location before native checks. The corrected run is tracked separately; no green-CI claim is made until it finishes.
+The first private Windows CI run passed the engine/recovery/protocol/frontend stage but exposed a missing staged CLI executable in the native check. Local build helpers had already prepared that file, masking the setup omission. The corrected workflow explicitly copies the newly built CLI into Tauri's target-named sidecar location before native checks. The [corrected Windows run](https://github.com/GeniusDevam/IDMXL/actions/runs/38783794968) passed for code checkpoint `b26352b`, including native formatting/Clippy. Subsequent documentation-only evidence commits do not change that tested code.
 

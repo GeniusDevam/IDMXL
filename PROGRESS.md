@@ -59,6 +59,7 @@ Build and test helpers, the adopted source PDF/plan, architecture decisions, dep
 - [ ] Uninstall preservation smoke and clean-machine/upgrade qualification.
 - [x] Generated CycloneDX inventory: 353 components, 516 collected notice files and 44 missing-root-notice review entries. Full distribution audit remains open.
 - [x] Windows CI workflow, reproducible test/build/setup helpers, media experiment and release/recovery documentation saved.
+- [x] Corrected fresh-checkout Windows CI passed for code checkpoint `b26352b`, including native desktop checks.
 
 The media experiment proves only the recorded generated MOV/RGB + WAV/PCM path. It does not implement the Media release, qualify streaming codecs/HDR or establish extractor/site support. The helper and Python are not bundled in the Core installer. The installer is unsigned; no update endpoint or production signing key is configured.
 
@@ -75,6 +76,8 @@ G4: direct media, restricted clear HLS/DASH VOD, exact source selection, control
 G5: add selected extended workflows from the full plan, with independent tests and support statements.
 
 ## Continuation instructions
+
+The installed native test copy remains running from `.local/installation-smoke/idmxl-desktop.exe`. Its activation failed twice in the Windows helper; a user action request to restore that window is pending. Refresh the returned window selection before more UI work. The installer created only this test installation after confirming no prior IDMXL installation/shortcut; actual uninstall/preservation checks are still pending. Keep the existing profile, downloads and original generated QA file intact. The source launcher now prefers the release checkout build. Exported unsigned installer, inventory, notice archive and build manifest are in the sibling `outputs/IDMXL-Preview` folder.
 
 Read `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/TEST-EVIDENCE.md` and `docs/RELEASE-CHECKLIST.md`. Run `scripts/test.ps1 -Faults -Protocols` before changing recovery behavior. Keep secret URLs on stdin and preserve redacted JSON. Next priorities are completing the installed/native and real Edge checks, clean-machine install/upgrade/uninstall, signed update recovery, adaptive tuning and the remaining Core workflows. Do not claim the Core/Media/Extended releases complete while their unchecked work remains.
 
