@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-16",
+  "type": "manual native smoke plus independent read-only verification",
+  "ui": {
+    "window_activation": "passed after minimized-window recovery",
+    "ctrl_n": "passed",
+    "native_save_dialog": "passed",
+    "trusted_hash_input": "passed",
+    "queue_policy_save": "passed",
+    "queue_pause_resume": "passed",
+    "explicit_pause_stays_paused": "passed",
+    "explicit_requeue": "passed",
+    "close_while_active_background_completion": "passed",
+    "tray_menu": "skipped at user request",
+    "scheduled_time": "not exercised manually",
+    "full_accessibility": "not qualified",
+    "capped_speed_eta_smoothing": "not qualified",
+    "rebuilt_dark_visual_check": "passed",
+    "retained_history_after_reopen": "passed",
+    "search": "passed",
+    "escape_closes_form": "passed",
+    "reveal_in_folder": "expected folder opened; Explorer reported one 3.00 MB item selected",
+    "system_theme_restored": "passed; light appearance on this machine"
+  },
+  "verification": {
+    "date": "2026-10-16",
+    "phase": "after",
+    "jobs": [
+      {
+        "id": "6115109a-23d2-455b-a55c-aca333c77268",
+        "state": "completed",
+        "mode": "sequential",
+        "total": 3145737,
+        "durable": 3145737,
+        "received": 3145737,
+        "actual_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281"
+      },
+      {
+        "id": "d4e0df2f-73d6-4e8d-b653-f4017230b543",
+        "state": "completed",
+        "mode": "ranged",
+        "total": 3145737,
+        "durable": 3145737,
+        "received": 3145737,
+        "actual_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281"
+      }
+    ],
+    "policy": {
+      "queue_name": "Native QA",
+      "priority": 7,
+      "connections": 1,
+      "speed_limit": 65536,
+      "not_before": 0
+    },
+    "generated_files": [
+      {
+        "path": ".local/IDMXL-background-test.bin",
+        "bytes": 3145737,
+        "sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+        "zone_id": 3
+      },
+      {
+        "path": ".local/IDMXL-native-retry-20261016.bin",
+        "bytes": 3145737,
+        "sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+        "zone_id": 3
+      }
+    ]
+  },
+  "uninstall": {
+    "mode": "current-user silent development-machine isolated installation",
+    "exit_code": 0,
+    "installation_folder_removed": true,
+    "uninstall_entry_removed": true,
+    "desktop_shortcut_removed": true,
+    "start_menu_shortcut_removed": true,
+    "generated_downloads_and_history_preserved": true,
+    "profile_backup_retained_locally": true
+  },
+  "limits": [
+    "No clean-machine or upgrade qualification",
+    "Tray Show/Pause/Exit actions not exercised",
+    "55 automated cases are prior engine/protocol evidence; manual smoke does not increase that count"
+  ]
+}

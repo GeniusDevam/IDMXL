@@ -29,7 +29,7 @@ To build from a fresh clone, also install Node.js 20.19+ or 22.12+ and a support
 .\scripts\start.ps1
 ```
 
-`scripts/build.ps1 -Release` builds a release preview; `-Bundle` builds the per-user NSIS installer. The installer is unsigned and has not passed clean-machine, upgrade or uninstall qualification. The launcher prefers a built release and falls back to debug. Release builds place the engine alongside the app; generated binaries and frontend output are excluded from source control.
+`scripts/build.ps1 -Release` builds a release preview; `-Bundle` builds the per-user NSIS installer. The installer is unsigned. One isolated development-machine install/uninstall preservation smoke passed; clean-machine, upgrade and broader uninstall qualification remain open. The launcher prefers a built release and falls back to debug. Release builds place the engine alongside the app; generated binaries and frontend output are excluded from source control.
 
 In the app, add a file URL and destination, optionally enable reusable-link probing or enter a trusted digest, then start it or run the automatic queue. Added jobs can start automatically while the queue worker is running. The progress bar shows received bytes; details distinguish verified durable checkpoints. Closing the window hides it to the tray; the tray can reopen it, pause the queue or exit the interface. Leave probing disabled for uncertain one-use links.
 

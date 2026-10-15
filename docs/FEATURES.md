@@ -31,7 +31,7 @@ Status on 15 October 2026. "Partial" means a useful subset exists; it does not s
 | F25 | Progress/history | Partial: history/search, received/durable bytes, sampled speed/ETA and actionable cooldowns; large-history/UI performance qualification pending. |
 | F26 | Interface | Partial: job/queue/schedule controls, tray, light/dark/system theme and folder reveal; full customization and accessibility qualification pending. |
 | F27 | Languages/accessibility | Pending qualification; English baseline. |
-| F28 | Installation/updates | Partial: per-user NSIS build, schema backups/idle migration, inventory/notices; signed updates, clean-machine and upgrade/uninstall gates pending. |
+| F28 | Installation/updates | Partial: per-user NSIS build, development-machine install/uninstall preservation smoke, schema backups/idle migration, inventory/notices; signed updates, clean-machine and broader upgrade/uninstall gates pending. |
 | F29 | Completion actions | Partial: explicit reveal-in-folder for completed available files; notifications/exit and advanced actions pending. |
 | F30 | Size/integrity | Partial: real 4 GiB-plus transfer/hash through a 397-character Unicode path passed; disk-full, reparse races and filesystem matrix pending. |
 | F31 | Sleep/network recovery | Partial: explicit rerun/resume; sleep/network-change qualification pending. |

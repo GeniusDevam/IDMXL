@@ -21,7 +21,7 @@ For manual recovery, keep the original profile intact first. With all app/engine
 ## Still required for Core
 
 - Real Edge installation, context-menu handoff and fallback testing; store acceptance is independent.
-- Clean Windows 11 x64 VM installation without developer runtimes; upgrade and uninstall preservation checks.
+- Clean Windows 11 x64 VM installation without developer runtimes; upgrade and broader uninstall preservation checks. One isolated development-machine silent uninstall passed on 16 October 2026.
 - Signed updates, authenticated release identity/freshness, key recovery and paired database rollback tests.
 - Physical storage power-loss, disk-full, permissions, reparse race, removable/network filesystem and sleep/network-change qualification.
 - Recurring schedules, adaptive concurrency/benchmarks, category rules and remaining Core UI/accessibility workflows.
