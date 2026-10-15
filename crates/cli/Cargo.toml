@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+fault-injection = ["idmxl-engine/fault-injection"]
+
 [[bin]]
 name = "idmxl"
 path = "src/main.rs"
@@ -15,3 +18,8 @@ clap.workspace = true
 ctrlc.workspace = true
 idmxl-engine = { path = "../engine" }
 serde_json.workspace = true
+serde.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+static_vcruntime = "3.0"

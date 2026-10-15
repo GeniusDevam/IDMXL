@@ -10,6 +10,24 @@
 * {
   box-sizing: border-box;
 }
+.queue-toolbar { display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:15px 22px;border-bottom:1px solid #e1e8df; }
+.queue-toolbar label {font-size:11px;display:flex;align-items:center;gap:8px;}
+.queue-toolbar input {width:115px;padding:6px;margin:0;}
+.queue-toolbar select {padding:6px;border:1px solid #d6e1d3;border-radius:5px;font:inherit;}
+.queue-toolbar small {font-size:11px;color:#647969;}
+.policy-form {display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:22px;padding-bottom:20px;border-bottom:1px solid #e1e8df;}
+.policy-form h3,.policy-form p {width:100%;margin:0;}
+.policy-form label {flex:1 1 170px;margin:0;}
+:root[data-theme="dark"] {color-scheme:dark;background:#101d1a;color:#e0e9e2;}
+:root[data-theme="dark"] :is(main,.topbar,.content) {background:#101d1a;color:#e0e9e2;}
+:root[data-theme="dark"] :is(.stat,.download-panel,.details,.about-panel,dialog,.job,.search,input,select) {background:#1c2b25;color:#e0e9e2;border-color:#435348;}
+:root[data-theme="dark"] :is(h1,h2,h3,.job-name,.stat-value,.details dd) {color:#e0e9e2;}
+@media (prefers-color-scheme:dark) {
+  :root[data-theme="system"] {color-scheme:dark;background:#101d1a;color:#e0e9e2;}
+  :root[data-theme="system"] :is(main,.topbar,.content) {background:#101d1a;color:#e0e9e2;}
+  :root[data-theme="system"] :is(.stat,.download-panel,.details,.about-panel,dialog,.job,.search,input,select) {background:#1c2b25;color:#e0e9e2;border-color:#435348;}
+  :root[data-theme="system"] :is(h1,h2,h3,.job-name,.stat-value,.details dd) {color:#e0e9e2;}
+}
 body {
   margin: 0;
 }

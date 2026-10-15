@@ -23,13 +23,18 @@ Updated 15 October 2026. This file is the continuation record; checked items des
 
 - [x] Initial Tauri desktop build with local bundled frontend, native save dialog and restricted IPC/capabilities.
 - [x] Native UI smoke test: add/start a generated file, close after observing it active, reopen, verify completed history and output SHA-256.
-- [ ] Edge native-host installation/round-trip feasibility and explicit handoff protocol.
-- [ ] Direct audio/video remux build experiment and dependency configuration record.
-- [ ] HTTP/2 fixture negotiation and TLS/certificate-failure fixtures (linked capability alone is not qualification).
-- [ ] Full fault injection at every write/flush/journal/publication boundary; real storage power-loss qualification.
-- [ ] Disk-full, permissions, long paths, >4 GiB, reparse races and filesystem support qualification.
-- [ ] Persistent advanced retry scheduling; HTTP-date Retry-After; adaptive concurrency and benchmarking.
-- [ ] Multiple queued-job scheduling, global/queue budgets and strict quotas.
+- [x] Explicit MV3 handoff extension, bounded/idempotent native host, public-address DNS pinning, setup files and deterministic round-trip tests.
+- [ ] Real Edge installation/context-menu click-through and distribution qualification.
+- [x] Controlled FFmpeg build and generated original 8K MOV/RGB + WAV/PCM stream-copy experiment; exact configuration/hashes recorded.
+- [x] Real ALPN HTTP/2 range fixture; untrusted, expired and wrong-host TLS failures, with revocation checking enabled.
+- [x] Test-only abrupt exit at eight write/flush/journal/publication boundaries with recovery checks.
+- [ ] Physical storage power-loss and broader fault/filesystem qualification.
+- [x] Actual 4,294,967,553-byte transfer, final hash verification and publication through a 397-character Unicode path.
+- [ ] Disk-full, permissions, reparse races and removable/network filesystem qualification.
+- [x] Numeric/HTTP-date Retry-After and persistent origin cooldowns across restarts and other queued jobs.
+- [ ] Durable retry-attempt accounting, adaptive concurrency and acceleration benchmarks.
+- [x] Automatic named queues, priority, one-time schedules/deadlines, checkpoint-based rotation and per-job/global queue speed caps.
+- [ ] Recurring schedules, strict quotas, dynamic/global multi-job budgets and metered-network policy.
 
 ## Milestone 2: initial native desktop preview
 
@@ -39,9 +44,26 @@ The native smoke test created only a generated ~3 MiB file. Output matched the f
 
 Build and test helpers, the adopted source PDF/plan, architecture decisions, dependency notes, test evidence and all F01-F32 statuses are saved in the repo. Generated toolchains, builds, caches, databases and test downloads are excluded from commits.
 
+## Milestone 3: queue, browser protocol and release foundations
+
+- [x] Live received/durable byte counters, sampled speed and ETA, including sequential bodies before checkpoint.
+- [x] Desktop queue controls, schedule editor, themes, system tray, Ctrl+N and explicit reveal-in-folder.
+- [x] Bounded JSON file-job batch import with input deduplication and per-entry results.
+- [x] Schema v3; idle-engine upgrade guard and pre-migration v1/v2 snapshots. Future versions are rejected.
+- [x] Thirteen Rust tests, thirty-three ordinary Python fixture tests and two extension tests pass. The separate real large-file case also passes (49 top-level cases in total).
+- [x] TypeScript production build and native/engine formatting and Clippy checks pass.
+- [x] Per-user NSIS installer built. CLI VCRuntime dependency fixed; final PE imports contain no external VCRUNTIME140 DLL requirement.
+- [x] Installer smoke on this development machine: isolated installation, expected resources and installed-engine doctor pass.
+- [ ] Updated installed-window click-through/visual test: accessibility tree exposes queue/theme controls, but the Windows helper failed to activate the captured window twice. Awaiting a restored window.
+- [ ] Uninstall preservation smoke and clean-machine/upgrade qualification.
+- [x] Generated CycloneDX inventory: 353 components, 516 collected notice files and 44 missing-root-notice review entries. Full distribution audit remains open.
+- [x] Windows CI workflow, reproducible test/build/setup helpers, media experiment and release/recovery documentation saved.
+
+The media experiment proves only the recorded generated MOV/RGB + WAV/PCM path. It does not implement the Media release, qualify streaming codecs/HDR or establish extractor/site support. The helper and Python are not bundled in the Core installer. The installer is unsigned; no update endpoint or production signing key is configured.
+
 ## Later release gates
 
-G2: complete desktop workflows, queues, schedules, keyboard/screen-reader checks and qualified explicit browser handoff.
+G2: recurring schedules, category rules, remaining desktop workflows, keyboard/screen-reader checks and real-browser qualification.
 
 G3: per-user installer, clean-machine tests, signed updates, migration/rollback, SBOM/notices and performance evidence.
 
@@ -51,5 +73,5 @@ G5: add selected extended workflows from the full plan, with independent tests a
 
 ## Continuation instructions
 
-Read `docs/PLAN.md`, `docs/ARCHITECTURE.md` and `docs/TEST-EVIDENCE.md`. Run `scripts/test.ps1` before changing recovery behavior. Preserve the CLI's redacted JSON contract and keep token-bearing URLs on stdin. Add regression cases for any new failure mode. Next priorities are browser/native-host feasibility, proper in-flight progress, TLS/HTTP2 and disk/path fixtures, and the remux experiment. Do not claim G0/G1 or the Core release complete while unchecked qualification work remains.
+Read `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/TEST-EVIDENCE.md` and `docs/RELEASE-CHECKLIST.md`. Run `scripts/test.ps1 -Faults -Protocols` before changing recovery behavior. Keep secret URLs on stdin and preserve redacted JSON. Next priorities are completing the installed/native and real Edge checks, clean-machine install/upgrade/uninstall, signed update recovery, adaptive tuning and the remaining Core workflows. Do not claim the Core/Media/Extended releases complete while their unchecked work remains.
 

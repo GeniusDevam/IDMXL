@@ -10,6 +10,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use idmxl_engine::{AddJob, Engine, RunOptions, Store};
+mod native_host;
 
 #[derive(Parser)]
 #[command(name = "idmxl", version, about = "IDMXL development download engine")]
@@ -63,6 +64,19 @@ enum Command {
     Cancel { id: String },
     /// Show the capabilities of the actually linked transport.
     Doctor,
+    /// Queue up to 1,000 explicit file jobs from a JSON array on stdin. Never starts them.
+    Batch,
+    /// Persist a job's queue, priority, UTC schedule and transfer options from JSON stdin.
+    Policy { id: String },
+    /// Run eligible jobs in priority/FIFO order. --watch waits for future schedules.
+    QueueRun {
+        #[arg(long)]
+        watch: bool,
+    },
+    /// Stop queue admission and pause its current transfer.
+    QueuePause,
+    /// Set the global queue bandwidth ceiling in bytes per second; zero means unlimited.
+    QueueLimit { bytes_per_second: u64 },
 }
 
 fn run() -> Result<()> {
@@ -130,13 +144,68 @@ fn run() -> Result<()> {
         Command::Pause { id } => serde_json::to_value(store.request(&id, "paused")?)?,
         Command::Cancel { id } => serde_json::to_value(store.request(&id, "canceled")?)?,
         Command::Doctor => unreachable!(),
+        Command::Policy { id } => {
+            let mut text = String::new();
+            std::io::stdin().take(16385).read_to_string(&mut text)?;
+            if text.len() > 16384 {
+                bail!("input_too_large");
+            }
+            let policy = serde_json::from_str(&text).context("invalid_queue_policy")?;
+            serde_json::to_value(store.set_policy(&id, &policy)?)?
+        }
+        Command::QueueRun { watch } => {
+            let stop = Arc::new(AtomicBool::new(false));
+            let signal = stop.clone();
+            ctrlc::set_handler(move || signal.store(true, Ordering::Relaxed))?;
+            store.set_queue_running(true)?;
+            idmxl_engine::scheduler::drain(&Engine::new(store), watch, stop)?;
+            serde_json::json!({"status":"queue_worker_stopped"})
+        }
+        Command::QueuePause => {
+            store.set_queue_running(false)?;
+            serde_json::json!({"status":"queue_paused"})
+        }
+        Command::QueueLimit { bytes_per_second } => {
+            store.set_global_speed_limit(bytes_per_second)?;
+            serde_json::json!({"bytes_per_second":bytes_per_second.to_string()})
+        }
+        Command::Batch => {
+            let mut text = String::new();
+            std::io::stdin().take(1048577).read_to_string(&mut text)?;
+            if text.len() > 1048576 {
+                bail!("input_too_large");
+            }
+            let requests: Vec<AddJob> = serde_json::from_str(&text).context("invalid_batch")?;
+            if requests.is_empty() || requests.len() > 1000 {
+                bail!("invalid_batch_size");
+            }
+            let mut seen = std::collections::HashSet::new();
+            let mut results = Vec::new();
+            for (index, request) in requests.into_iter().enumerate() {
+                if !seen.insert((request.url.clone(), request.destination.clone())) {
+                    results.push(serde_json::json!({"index":index,"status":"duplicate"}));
+                    continue;
+                }
+                match store.add(request) {
+                    Ok(job)=>results.push(serde_json::json!({"index":index,"status":"queued","job":job})),
+                    Err(_)=>results.push(serde_json::json!({"index":index,"status":"rejected","error":"invalid_or_conflicting_job"})),
+                }
+            }
+            serde_json::json!({"results":results})
+        }
     };
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }
 
 fn main() {
-    if let Err(error) = run() {
+    let first = std::env::args().nth(1).unwrap_or_default();
+    let result = if first.starts_with("chrome-extension://") {
+        native_host::serve(&first)
+    } else {
+        run()
+    };
+    if let Err(error) = result {
         // Error contexts are controlled codes. Do not dump request objects, URLs or headers.
         eprintln!("{}", serde_json::json!({"error":error.to_string()}));
         std::process::exit(1);

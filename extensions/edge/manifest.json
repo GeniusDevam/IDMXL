@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "IDMXL — Send link",
+  "version": "0.1.0",
+  "description": "Explicitly queue a public HTTP(S) file link in your local IDMXL app.",
+  "permissions": ["contextMenus", "nativeMessaging", "storage"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "IDMXL handoff" }
+}

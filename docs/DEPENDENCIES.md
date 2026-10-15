@@ -18,3 +18,9 @@ Official API references consulted while implementing:
 - https://www.sqlite.org/pragma.html#pragma_synchronous
 - https://tauri.app/start/prerequisites/
 
+The queue/protocol milestone adds httpdate 1.0.3 (MIT/Apache-2.0), tray-icon 0.25.1 via Tauri's tray feature, and static_vcruntime 3.0.0 for the CLI build script. The CLI and desktop use static VCRuntime linkage with Windows' UCRT. This reduces runtime-install prerequisites, but Microsoft compiler/runtime terms still require review. Test-only h2/hpack/hyperframe/cryptography versions are pinned in tests/requirements.txt. PGPy was used only as a development source-signature verifier, with limitations recorded in MEDIA-BUILD.md.
+
+`scripts/sbom.ps1` collects the actual locked Windows Rust graphs, npm lock graph, linked engine native versions, observed NSIS tooling and Windows/WebView2/runtime prerequisites into a CycloneDX 1.6 inventory. It copies 516 root notice files for the current graph and flags 44 missing-root texts; it does not infer licence incompatibility or silently mark them cleared. The current inventory contains 353 components including build/test and optional-platform packages. Embedded native source notices and an artifact-specific runtime inventory still need audit.
+
+The controlled FFmpeg helper experiment has its own exact-source/compiler/configuration record in MEDIA-BUILD.md. It is not bundled in the Core installer. No Python interpreter, extractor runtime or downloaded media helper is shipped by this milestone.
+

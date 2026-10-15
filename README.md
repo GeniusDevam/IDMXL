@@ -7,12 +7,15 @@ A Windows download manager in early development. The first milestone is a real R
 - HTTP(S) file downloads, with public file URLs or DPAPI-protected signed URLs on Windows.
 - Single-request mode by default. An explicit `--replayable` option enables probing, strong-validator checks and up to four concurrent byte ranges.
 - Durable 1 MiB extents, pause/resume, process-crash recovery, and verification of saved extents before reuse.
-- Bounded retries for eligible range-transfer failures, numeric Retry-After handling, and optional per-job speed limiting.
+- Bounded range retries, numeric/HTTP-date Retry-After and persisted origin cooldowns.
 - SHA-256 validation, no-overwrite publication, recovery across rename/database boundaries, and Internet-zone attachment metadata on Windows.
-- Persistent, redacted JSON history; a single active engine per state directory.
-- An original Tauri/React Windows interface with add/start/pause/cancel, search, summary counts and hash details. Downloads run in a separate CLI process and history survives closing/reopening the window.
+- Persistent, redacted JSON history, live received/durable bytes, speed and ETA.
+- Automatic named queues, priorities, one-time UTC schedules/deadlines, checkpoint-based queue rotation, and per-job/global queue rate ceilings. One job runs at a time.
+- Bounded, deduplicated JSON batch import; explicit public-link browser handoff extension and durable native protocol.
+- An original Tauri/React Windows interface with add/start/pause/cancel, search, schedules, tray, themes and reveal-in-folder. Detached engine processes keep downloads running when the window is hidden/closed.
+- Idle-only schema migrations with pre-migration SQLite snapshots, a per-user NSIS installer build and dependency/notice inventory tooling.
 
-This is a development milestone, not a completed Core release. Adaptive tuning, automatic multi-job scheduling, browser handoff, media acquisition, installation and signed updates are not yet implemented. NTFS is the intended first production filesystem; real power-loss and clean-machine qualification are pending. Fixed parallelism has not been benchmarked as faster than a browser.
+This is a development milestone, not a completed Core release. Adaptive tuning, recurring schedules, strict quotas, signed updates and the Media/Extended releases remain open. Browser installation/click-through and installer clean-machine/upgrade/uninstall qualification remain open. The controlled 8K MOV/PCM remux experiment is documented but not bundled as a media feature. Fixed parallelism has not been benchmarked as faster than a browser. See [PROGRESS.md](PROGRESS.md) for the full remaining gates.
 
 ## Open the desktop preview
 
@@ -25,9 +28,9 @@ To build from a fresh clone, also install Node.js 20.19+ or 22.12+ and a support
 .\scripts\start.ps1
 ```
 
-`scripts/build.ps1 -Release` builds a release preview. `-Bundle` is a future installer-development path; its NSIS output, signing, clean-machine behavior and upgrade/uninstall contract are not yet qualified. The development launcher works after building in the current checkout. Release builds place the engine alongside the app; source control excludes generated binaries and frontend output.
+`scripts/build.ps1 -Release` builds a release preview; `-Bundle` builds the per-user NSIS installer. The installer is unsigned and has not passed clean-machine, upgrade or uninstall qualification. The launcher prefers a built release and falls back to debug. Release builds place the engine alongside the app; generated binaries and frontend output are excluded from source control.
 
-In the app, add an HTTP(S) file URL, choose an existing destination folder, optionally enable reusable-link probing or enter a trusted digest, then press Start on its row. One job runs at a time. Progress currently shows durable checkpoint bytes, not unflushed in-flight bytes; sequential jobs may show no byte progress until their full request is checkpointed. Leave probing disabled for uncertain one-use links.
+In the app, add a file URL and destination, optionally enable reusable-link probing or enter a trusted digest, then start it or run the automatic queue. Added jobs can start automatically while the queue worker is running. The progress bar shows received bytes; details distinguish verified durable checkpoints. Closing the window hides it to the tray; the tray can reopen it, pause the queue or exit the interface. Leave probing disabled for uncertain one-use links.
 
 ## Build
 
@@ -42,6 +45,8 @@ python -m unittest discover -s tests -v
 
 Python 3.11+ is used only for deterministic end-to-end tests. They run a temporary HTTP server on loopback and use generated files. Network-restricted execution sandboxes must permit loopback for the test processes.
 
+For the fault and TLS/HTTP2 fixtures, install `tests/requirements.txt` into a development Python environment and run `scripts/test.ps1 -Faults -Protocols`. The ordinary build excludes fault/test-CA hooks. The optional resource test uses a generated 4,294,967,553-byte file and needs at least 6 GiB free; see TEST-EVIDENCE.md. Test runtimes are not shipped.
+
 ## Use the CLI
 
 ```powershell
@@ -53,6 +58,11 @@ Python 3.11+ is used only for deterministic end-to-end tests. They run a tempora
 .\target\debug\idmxl.exe list
 .\target\debug\idmxl.exe pause <job-id>
 .\target\debug\idmxl.exe run <job-id>
+
+# Run queued jobs automatically, waiting for future scheduled starts.
+.\target\debug\idmxl.exe queue-run --watch
+.\target\debug\idmxl.exe queue-pause
+.\target\debug\idmxl.exe queue-limit 1048576
 ```
 
 The destination folder must already exist. Existing files are never silently replaced. Job data defaults to `%LOCALAPPDATA%\IDMXL`; use `--state-dir <folder>` for an isolated profile.
@@ -62,6 +72,10 @@ Use `add --url-stdin --output <path>` for URLs with secret tokens so those token
 Without `--replayable`, the engine skips probing and uses a single request. Interrupted sequential jobs restart safely. With `--replayable`, safe resume requires matching strong identity and a valid range response. Missing/weak validators cause sequential fallback. Refreshing a signed URL is not implemented yet.
 
 Cancel preserves partial files and prevents further running of that job. The current CLI intentionally does not delete downloads or partials. Only one job runs at a time per profile; a second engine receives `engine_busy`.
+
+`policy <job-id>` reads a JSON object from stdin: `queue_name`, `priority` (-1000..1000), `not_before` (UTC Unix milliseconds), optional `deadline`, `connections` (1..4), `retries` (0..5), and `speed_limit` (bytes/s; zero unlimited). Rate changes apply when a job starts. Schedules run only while the logged-in queue worker is alive; missed start times run when next eligible. Explicitly paused jobs stay paused; global queue pause preserves its current job for the next queue start. Failed jobs require an explicit retry/requeue.
+
+`batch` reads a JSON array of up to 1,000 objects with `url`, `destination`, optional `replayable` and `expected_sha256`. Each result is reported separately; identical URL/destination pairs within the input are deduplicated. It queues only. `list` exports redacted history, rather than reusable secret URLs. See [browser handoff setup](docs/BROWSER-HANDOFF.md), [media experiment](docs/MEDIA-BUILD.md) and [release checks](docs/RELEASE-CHECKLIST.md).
 
 ## Repository layout
 

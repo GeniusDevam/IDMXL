@@ -1,0 +1,35 @@
+name: Windows validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  fixtures:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Toolchain and test fixtures
+        shell: pwsh
+        run: |
+          rustup show
+          python -m pip install -r tests/requirements.txt
+      - name: Engine, recovery, native protocol and TLS/HTTP2
+        shell: pwsh
+        run: ./scripts/test.ps1 -Faults -Protocols
+      - name: Native desktop checks
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings

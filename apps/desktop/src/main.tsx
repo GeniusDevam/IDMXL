@@ -13,12 +13,18 @@ type Job = {
   generation: number;
   total_bytes: string | null;
   durable_bytes: string;
+  received_bytes: string;
+  speed_bytes_per_second: string;
+  eta_seconds: string | null;
+  policy: Policy;
+  retry_not_before: string|null;
   mode: string;
   replayable: boolean;
   sha256: string | null;
   error: string | null;
   file_available: boolean;
 };
+type Policy = {queue_name:string;priority:number;not_before:number;deadline:number|null;connections:number;retries:number;speed_limit:number};
 type Filter = "all" | "active" | "completed";
 const activeStates = new Set(["downloading", "pausing", "verifying"]);
 const native = isTauri();
@@ -42,7 +48,7 @@ function percent(job: Job) {
     return job.state === "completed" ? 100 : 0;
   return Math.min(
     100,
-    Number((BigInt(job.durable_bytes) * 100n) / BigInt(job.total_bytes)),
+    Number((BigInt(job.received_bytes) * 100n) / BigInt(job.total_bytes)),
   );
 }
 
@@ -129,6 +135,11 @@ function App() {
   const [selected, setSelected] = useState<Job | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const [caps, setCaps] = useState<Record<string, unknown> | null>(null);
+  const [queueRunning, setQueueRunning] = useState(false);
+  const [queueLimit, setQueueLimit] = useState("0");
+  const queueSettingsLoaded = useRef(false);
+  const [policyDraft, setPolicyDraft] = useState<Policy|null>(null);
+  const [theme, setTheme] = useState(localStorage.getItem("idmxl-theme") || "system");
   const modalRef = useRef<HTMLDialogElement>(null);
   const oldFocus = useRef<HTMLElement | null>(null);
 
@@ -136,6 +147,9 @@ function App() {
     if (!native) return;
     try {
       setJobs(await invoke<Job[]>("list_jobs"));
+      const status = await invoke<{running:boolean;speed_limit:string}>("queue_status");
+      setQueueRunning(status.running);
+      if (!queueSettingsLoaded.current) {setQueueLimit(status.speed_limit);queueSettingsLoaded.current=true;}
     } catch {
       setError(
         "The download history could not be read. Check that the app can access its data folder.",
@@ -161,8 +175,19 @@ function App() {
     }
   }, [form]);
   useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("idmxl-theme",theme);
+  },[theme]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.key.toLowerCase() === "n") { event.preventDefault(); if (native) setForm(true); }
+    };
+    window.addEventListener("keydown",key); return () => window.removeEventListener("keydown",key);
+  },[]);
+  useEffect(() => {
     if (selected) setSelected(jobs.find((j) => j.id === selected.id) ?? null);
   }, [jobs]);
+  useEffect(() => { setPolicyDraft(selected?.policy ?? null); },[selected?.id]);
 
   const active = jobs.filter((j) => activeStates.has(j.state));
   const completed = jobs.filter((j) => j.state === "completed");
@@ -182,7 +207,7 @@ function App() {
       `${j.name} ${j.source}`.toLowerCase().includes(search.toLowerCase()),
   );
 
-  async function action(job: Job, kind: "start" | "pause" | "cancel") {
+  async function action(job: Job, kind: "start" | "pause" | "cancel" | "queue") {
     setWorking(job.id);
     setError("");
     try {
@@ -190,7 +215,7 @@ function App() {
         kind === "start" ? "start_job" : "control_job",
         kind === "start"
           ? { id: job.id }
-          : { id: job.id, action: kind === "pause" ? "paused" : "canceled" },
+          : { id: job.id, action: kind === "pause" ? "paused" : kind === "queue" ? "queued" : "canceled" },
       );
       await refresh();
     } catch (e) {
@@ -340,7 +365,8 @@ function App() {
               <p>
                 This preview supports HTTP and HTTPS file downloads, verified
                 checkpoints, pause/resume and SHA-256 checks. One file runs at a
-                time. Media downloading, browser capture, scheduling and
+                time, with named queues and scheduled starts. Browser handoff
+                needs the separate extension setup. Media downloading and signed
                 automatic updates are still in development.
               </p>
               <small>
@@ -388,6 +414,15 @@ function App() {
             ))}
           </section>
           <section className="download-panel" aria-labelledby="downloads-title">
+            <div className="queue-toolbar">
+              <button className="secondary" disabled={!native || Boolean(working)} onClick={async () => {
+                try { await invoke("queue_control",{running:!queueRunning,speedLimit:queueRunning ? null : queueLimit}); await refresh(); }
+                catch(e) {setError(friendly(e));}
+              }}>{queueRunning ? "Pause queue" : "Start queue"}</button>
+              <label>Queue limit (bytes/s) <input type="number" min="0" max="10000000000" value={queueLimit} onChange={e=>setQueueLimit(e.target.value)} /></label>
+              <label>Theme <select value={theme} onChange={e=>setTheme(e.target.value)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+              <small>{queueRunning ? "Queue runs in the background" : "Queue stopped"}</small>
+            </div>
             <div className="panel-toolbar">
               <h2 id="downloads-title">
                 {filter === "all"
@@ -441,7 +476,8 @@ function App() {
                       </div>
                       <div className="job-meta">
                         <span>
-                          {bytes(job.durable_bytes)} / {bytes(job.total_bytes)}
+                          {bytes(job.received_bytes)} / {bytes(job.total_bytes)}
+                          {job.state === "downloading" && ` · ${bytes(job.speed_bytes_per_second)}/s${job.eta_seconds ? ` · ~${job.eta_seconds}s left` : ""}`}
                         </span>
                         <span className={`job-state ${job.state}`}>
                           {job.state === "completed" && !job.file_available
@@ -452,8 +488,11 @@ function App() {
                       {job.error && (
                         <p className="job-error">{friendly(job.error)}</p>
                       )}
+                      {job.retry_not_before && <p className="job-error">Source retry available after {new Date(Number(job.retry_not_before)).toLocaleString()}</p>}
                     </div>
                     <div className="job-actions">
+                      {["paused","failed"].includes(job.state) && <button className="icon-button" title="Add to automatic queue" aria-label={`Queue ${job.name}`} onClick={()=>void action(job,"queue")}><Icon name="plus" /></button>}
+                      {job.file_available && <button className="icon-button" title="Show in folder" aria-label={`Show ${job.name} in folder`} onClick={()=>void invoke("reveal_job",{id:job.id}).catch(e=>setError(friendly(e)))}><Icon name="folder" /></button>}
                       {activeStates.has(job.state) ? (
                         <button
                           className="icon-button"
@@ -544,6 +583,20 @@ function App() {
           </section>
           {selected && (
             <section className="details">
+              {policyDraft && <form className="policy-form" onSubmit={async e=>{
+                e.preventDefault();
+                try {await invoke("set_policy",{id:selected.id,policy:policyDraft}); await refresh();}
+                catch(error){setError(friendly(error));}
+              }}>
+                <h3>Queue and schedule</h3>
+                <label>Queue name<input value={policyDraft.queue_name} maxLength={64} onChange={e=>setPolicyDraft({...policyDraft,queue_name:e.target.value})} /></label>
+                <label>Priority (-1000 to 1000)<input type="number" min="-1000" max="1000" value={policyDraft.priority} onChange={e=>setPolicyDraft({...policyDraft,priority:Number(e.target.value)})} /></label>
+                <label>Start after (local time)<input type="datetime-local" value={policyDraft.not_before ? new Date(policyDraft.not_before-new Date(policyDraft.not_before).getTimezoneOffset()*60000).toISOString().slice(0,16) : ""} onChange={e=>setPolicyDraft({...policyDraft,not_before:e.target.value ? new Date(e.target.value).getTime() : 0})} /></label>
+                <label>Connections<input type="number" min="1" max="4" value={policyDraft.connections} onChange={e=>setPolicyDraft({...policyDraft,connections:Number(e.target.value)})} /></label>
+                <label>Job limit (bytes/s; 0 unlimited)<input type="number" min="0" value={policyDraft.speed_limit} onChange={e=>setPolicyDraft({...policyDraft,speed_limit:Number(e.target.value)})} /></label>
+                <p>{bytes(selected.durable_bytes)} saved in verified checkpoints. Scheduled jobs run while the queue worker is running; missed start times run when next eligible.</p>
+                <button className="secondary" type="submit">Save schedule</button>
+              </form>}
               <div>
                 <h2>Download details</h2>
                 <button
@@ -649,8 +702,9 @@ function App() {
             </span>
           </label>
           <p className="form-note">
-            Files are added to your list first. Choose Start when you’re ready.
-            Existing files are never replaced automatically.
+            Added jobs can start automatically while the queue is running.
+            Otherwise, choose Start when you’re ready. Existing files are never
+            replaced automatically.
           </p>
           {error && (
             <p className="inline-error" role="alert">
@@ -698,6 +752,9 @@ function friendly(error: unknown): string {
     digest_mismatch:
       "The file did not match the expected SHA-256. It has not been published.",
     server_throttled: "The server asked us to wait. Try this download later.",
+    server_retry_pending: "The source is cooling down as requested by its server. Queued jobs wait until that deadline.",
+    private_network_blocked: "Browser handoffs can reach public internet addresses only. Add an intranet link directly in the app if intended.",
+    invalid_queue_policy: "Check the queue name, times, connection count, priority and speed limit.",
     interrupted: "The previous session ended. Resume to verify and continue.",
     publication_failed:
       "The final file could not be saved. Check its destination and try again.",

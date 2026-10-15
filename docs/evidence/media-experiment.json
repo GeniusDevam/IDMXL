@@ -1,0 +1,17 @@
+{
+  "video": {
+    "width": 7680,
+    "height": 4320,
+    "codec": "rawvideo",
+    "packet_sha256": "475ac0ea90c845705621c1ef96e97e87823945dd8d39e6e78162a920e40feb16",
+    "frames": 1
+  },
+  "audio": {
+    "codec": "pcm_s16le",
+    "sample_rate": 48000,
+    "channels": 2,
+    "sha256": "1120793b7db9790cf84e6b779d469b97d5fc1b0bfab5f80c2297b6341a7cad38"
+  },
+  "helper_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers\r\nbuilt with gcc 16.2.0 (GCC)\r\nconfiguration: --target-os=mingw32 --arch=x86_64 --cc=gcc --cxx=g++ --disable-everything --disable-autodetect --disable-network --disable-gpl --disable-nonfree --disable-version3 --disable-doc --disable-debug --disable-x86asm --disable-avdevice --enable-protocol=file --enable-demuxer='mov,matroska,mpegts,aac,mp3,ogg,wav' --enable-muxer='mp4,matroska,webm,mpegts,adts,mp3,ogg,wav' --enable-parser='h264,hevc,av1,vp9,aac,mpegaudio' --enable-bsf='aac_adtstoasc,extract_extradata,h264_mp4toannexb,hevc_mp4toannexb' --enable-ffmpeg --enable-ffprobe --enable-static --disable-shared\r\nlibavutil      61.  1.102 / 61.  1.102\r\nlibavcodec     63.  1.102 / 63.  1.102\r\nlibavformat    63.  1.102 / 63.  1.102\r\nlibavfilter    12.  1.102 / 12.  1.102\r\nlibswscale     10.  1.102 / 10.  1.102\r\nlibswresample   7.  1.102 /  7.  1.102\r\n\r\nExiting with exit code 0\r\n",
+  "limitations": "Generated MOV/RGB + WAV/PCM stream-copy experiment only. Not AV1/VP9/HEVC, HDR, HLS/DASH or site qualification."
+}

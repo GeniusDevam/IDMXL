@@ -231,11 +231,12 @@ impl Handler for Receiver {
             self.error = Some("body_exceeds_lease");
             return Ok(0);
         }
-        if let Some(file) = &self.file
-            && platform::write_at(file, data, offset + self.bytes).is_err()
-        {
-            self.error = Some("storage_write_failed");
-            return Ok(0);
+        if let Some(file) = &self.file {
+            if platform::write_at(file, data, offset + self.bytes).is_err() {
+                self.error = Some("storage_write_failed");
+                return Ok(0);
+            }
+            crate::fault::point("after_body_write");
         }
         self.hash.update(data);
         self.bytes = end;
@@ -259,6 +260,7 @@ pub fn handle(
     file: Option<Arc<File>>,
     stop: Arc<AtomicBool>,
     speed: u64,
+    public_only: bool,
 ) -> Result<Easy2<Receiver>> {
     platform::checked_url(url)?;
     let mut headers = List::new();
@@ -273,6 +275,9 @@ pub fn handle(
     };
     let mut easy = Easy2::new(Receiver::new(mode, file, stop));
     easy.url(url)?;
+    if public_only {
+        crate::network::pin_public(&mut easy, url)?;
+    }
     easy.follow_location(false)?;
     easy.proxy("")?;
     easy.useragent("IDMXL/0.1.0")?;
@@ -284,6 +289,10 @@ pub fn handle(
     easy.low_speed_time(Duration::from_secs(30))?;
     easy.ssl_verify_peer(true)?;
     easy.ssl_verify_host(true)?;
+    #[cfg(feature = "fault-injection")]
+    if let Some(ca) = std::env::var_os("IDMXL_TEST_CA") {
+        easy.cainfo(std::path::PathBuf::from(ca))?;
+    }
     if let Some(range) = range {
         easy.range(&range)?;
     }
@@ -301,16 +310,38 @@ pub struct Probe {
     pub ranged: bool,
 }
 
-pub fn probe(url: &str, stop: Arc<AtomicBool>) -> Result<Probe> {
+#[derive(Debug)]
+pub struct Throttled {
+    pub url: String,
+    pub delay: Option<Duration>,
+}
+impl std::fmt::Display for Throttled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "server_throttled")
+    }
+}
+impl std::error::Error for Throttled {}
+
+pub fn probe(url: &str, stop: Arc<AtomicBool>, public_only: bool) -> Result<Probe> {
     let mut resolved = url.to_owned();
     for _ in 0..=5 {
-        let easy = handle(&resolved, Mode::Probe, None, stop.clone(), 0)?;
+        let easy = handle(&resolved, Mode::Probe, None, stop.clone(), 0, public_only)?;
         let result = easy.perform();
         let receiver = easy.get_ref();
         if stop.load(Ordering::Relaxed) {
             bail!("transfer_interrupted");
         }
         if let Some(error) = receiver.error {
+            if error == "server_throttled" {
+                return Err(anyhow::Error::new(Throttled {
+                    url: resolved,
+                    delay: receiver
+                        .headers
+                        .fields
+                        .get("retry-after")
+                        .and_then(|n| crate::engine::server_delay(n)),
+                }));
+            }
             bail!("{error}");
         }
         let status = receiver.headers.status;
@@ -346,7 +377,7 @@ pub fn probe(url: &str, stop: Arc<AtomicBool>) -> Result<Probe> {
                 ranged: false,
             });
         }
-        result.map_err(|_| anyhow::anyhow!("probe_transport_failed"))?;
+        result.map_err(|error| anyhow::anyhow!(transport_error(&error)))?;
         if status != 206 || receiver.bytes != 1 {
             bail!("invalid_probe_response");
         }
@@ -370,6 +401,14 @@ pub fn probe(url: &str, stop: Arc<AtomicBool>) -> Result<Probe> {
     bail!("too_many_redirects")
 }
 
+pub fn transport_error(error: &curl::Error) -> &'static str {
+    if matches!(error.code(), 35 | 51 | 58 | 60 | 77) {
+        "tls_verification_failed"
+    } else {
+        "transfer_transport_failed"
+    }
+}
+
 pub fn parse_range(value: &str) -> Option<(u64, u64, u64)> {
     let value = value.strip_prefix("bytes ")?;
     let (extent, total) = value.split_once('/')?;
@@ -385,6 +424,25 @@ pub fn parse_range(value: &str) -> Option<(u64, u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_storage_write_does_not_claim_received_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("readonly.bin");
+        std::fs::write(&path, b"original").unwrap();
+        let file = Arc::new(File::open(&path).unwrap());
+        let mut receiver = Receiver::new(
+            Mode::Sequential,
+            Some(file),
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(receiver.header(b"HTTP/1.1 200 OK\r\n"));
+        assert!(receiver.header(b"Content-Length: 3\r\n"));
+        assert!(receiver.header(b"\r\n"));
+        assert_eq!(receiver.write(b"new").unwrap(), 0);
+        assert_eq!(receiver.bytes, 0);
+        assert_eq!(receiver.error, Some("storage_write_failed"));
+        assert_eq!(std::fs::read(path).unwrap(), b"original");
+    }
     #[test]
     fn range_bounds_are_checked() {
         assert_eq!(parse_range("bytes 10-19/20"), Some((10, 19, 20)));

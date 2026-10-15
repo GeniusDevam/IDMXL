@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AddJob {
     pub url: String,
     pub destination: PathBuf,
+    #[serde(default)]
     pub replayable: bool,
     pub expected_sha256: Option<String>,
 }
@@ -30,6 +32,39 @@ pub struct Job {
     pub error: Option<String>,
     pub requested: String,
     pub publication_file_id: Option<String>,
+    pub received: u64,
+    pub speed: u64,
+    pub eta: Option<u64>,
+    pub public_only: bool,
+    pub policy: JobPolicy,
+    pub retry_not_before: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct JobPolicy {
+    pub queue_name: String,
+    pub priority: i32,
+    /// Unix milliseconds, UTC. Zero means immediately eligible.
+    pub not_before: i64,
+    pub deadline: Option<i64>,
+    pub connections: u8,
+    pub retries: u8,
+    pub speed_limit: u64,
+}
+
+impl Default for JobPolicy {
+    fn default() -> Self {
+        Self {
+            queue_name: "Default".into(),
+            priority: 0,
+            not_before: 0,
+            deadline: None,
+            connections: 2,
+            retries: 2,
+            speed_limit: 0,
+        }
+    }
 }
 
 /// Decimal byte strings keep the UI/IPC contract precise beyond JavaScript's integer range.
@@ -43,6 +78,11 @@ pub struct JobView {
     pub generation: u64,
     pub total_bytes: Option<String>,
     pub durable_bytes: String,
+    pub received_bytes: String,
+    pub speed_bytes_per_second: String,
+    pub eta_seconds: Option<String>,
+    pub policy: JobPolicy,
+    pub retry_not_before: Option<String>,
     pub mode: String,
     pub replayable: bool,
     pub sha256: Option<String>,
@@ -67,6 +107,11 @@ impl From<Job> for JobView {
             generation: job.generation,
             total_bytes: job.total.map(|n| n.to_string()),
             durable_bytes: job.durable.to_string(),
+            received_bytes: job.received.max(job.durable).to_string(),
+            speed_bytes_per_second: job.speed.to_string(),
+            eta_seconds: job.eta.map(|n| n.to_string()),
+            policy: job.policy,
+            retry_not_before: job.retry_not_before.map(|n| n.to_string()),
             mode: job.mode,
             replayable: job.replayable,
             sha256: job.actual_sha256,

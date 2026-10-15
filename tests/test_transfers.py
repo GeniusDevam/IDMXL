@@ -16,6 +16,8 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
+import struct
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +51,11 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        if path in ("/cooldown","/date-cooldown"):
+            import email.utils
+            self.send_response(429)
+            self.send_header("Retry-After",email.utils.formatdate(time.time()+3600,usegmt=True) if path=="/date-cooldown" else "3600")
+            self.send_header("Content-Length","0");self.end_headers();return
         if path == "/throttle" and byte_range and byte_range != "bytes=0-0" and attempt == 1:
             self.send_response(429)
             self.send_header("Retry-After", "0")
@@ -118,7 +125,7 @@ class TransferTests(unittest.TestCase):
 
     def command(self, *args, success=True, input=None):
         result = subprocess.run([str(EXE), "--state-dir", str(self.state), *args], input=input,
-                                text=True, capture_output=True, timeout=35)
+                                text=True, encoding="utf-8", capture_output=True, timeout=35)
         if success:
             self.assertEqual(result.returncode, 0, result.stderr)
             return json.loads(result.stdout)
@@ -297,6 +304,180 @@ class TransferTests(unittest.TestCase):
         finally:
             db.close()
         self.assertIn("database_version_unsupported", self.command("list", success=False).stderr)
+
+    def test_sequential_reports_inflight_bytes_before_checkpoint(self):
+        job = self.add("/slow", replayable=False)
+        process = self.start(job)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            current = self.command("show", job["id"])
+            if int(current["received_bytes"]) > 0:
+                self.assertEqual(current["durable_bytes"], "0")
+                self.assertGreater(int(current["speed_bytes_per_second"]), 0)
+                self.assertEqual(current["total_bytes"], str(len(DATA)))
+                break
+            time.sleep(.1)
+        else:
+            self.fail("No live progress before sequential completion")
+        self.command("pause",job["id"])
+        process.communicate(timeout=10)
+
+    def test_queue_priority_schedule_failure_and_pause_exclusion(self):
+        low = self.add(name="low.bin")
+        high = self.add(name="high.bin")
+        future = self.add(name="future.bin")
+        paused = self.add(name="paused.bin")
+        broken = self.add("/missing", name="missing.bin")
+        self.command("policy",high["id"],input=json.dumps({"priority":10}))
+        self.command("policy",broken["id"],input=json.dumps({"priority":20}))
+        self.command("policy",future["id"],input=json.dumps({"not_before":int(time.time()*1000)+60000}))
+        self.command("pause",paused["id"])
+        db=sqlite3.connect(self.state / "jobs.db")
+        db.executescript("CREATE TABLE audit(id TEXT); CREATE TRIGGER starts AFTER UPDATE OF state ON jobs WHEN new.state='downloading' AND old.state!='downloading' BEGIN INSERT INTO audit VALUES(new.id); END;")
+        db.close()
+        self.command("queue-run")
+        self.assertEqual(self.command("show",high["id"])["state"],"completed")
+        self.assertEqual(self.command("show",low["id"])["state"],"completed")
+        self.assertEqual(self.command("show",broken["id"])["state"],"failed")
+        self.assertEqual(self.command("show",future["id"])["state"],"queued")
+        self.assertEqual(self.command("show",paused["id"])["state"],"paused")
+        db=sqlite3.connect(self.state / "jobs.db")
+        self.assertEqual([row[0] for row in db.execute("SELECT id FROM audit")],[broken["id"],high["id"],low["id"]])
+        db.close()
+
+    def test_queue_waits_for_schedule_and_global_pause_stops_transfer(self):
+        job = self.add("/slow")
+        start_at = int(time.time()*1000)+1200
+        self.command("policy",job["id"],input=json.dumps({"not_before":start_at,"connections":1}))
+        process = subprocess.Popen([str(EXE),"--state-dir",str(self.state),"queue-run","--watch"],
+                                   stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        self.processes.append(process)
+        time.sleep(.3)
+        self.assertEqual(self.command("show",job["id"])["state"],"queued")
+        self.wait_checkpoint(job,process)
+        self.command("queue-pause")
+        stdout,stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        self.assertEqual(self.command("show",job["id"])["state"],"queued")
+
+    def test_v1_migration_preserves_jobs_and_creates_valid_backup(self):
+        job = self.add()
+        database = self.state / "jobs.db"
+        db = sqlite3.connect(database)
+        columns = [row[1] for row in db.execute("PRAGMA table_info(jobs)")][:19]
+        old_row = db.execute("SELECT " + ",".join(columns) + " FROM jobs").fetchone()
+        db.close()
+        legacy = self.directory / "legacy"
+        legacy.mkdir()
+        db = sqlite3.connect(legacy / "jobs.db")
+        db.executescript((ROOT / "crates/engine/migrations/001_initial.sql").read_text())
+        db.execute("INSERT INTO jobs("+",".join(columns)+") VALUES("+",".join("?" for _ in columns)+")",old_row)
+        db.commit(); db.close()
+        result = subprocess.run([str(EXE),"--state-dir",str(legacy),"show",job["id"]],capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout)["policy"]["queue_name"],"Default")
+        backup = next(legacy.glob("jobs-v1-*.sqlite"))
+        db = sqlite3.connect(backup)
+        self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0],"ok")
+        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],1)
+        self.assertEqual(db.execute("SELECT id FROM jobs").fetchone()[0],job["id"])
+        db.close()
+
+    def host(self, frames, origin="chrome-extension://"+"a"*32+"/"):
+        config = self.directory / "host.json"
+        config.write_text(json.dumps({"allowed_origin":"chrome-extension://"+"a"*32+"/", "state_dir":str(self.state),"download_dir":str(self.directory)}))
+        env = dict(os.environ,IDMXL_HOST_CONFIG=str(config))
+        return subprocess.run([str(EXE),origin,"--parent-window=0"],input=frames,capture_output=True,env=env,timeout=15)
+
+    @staticmethod
+    def frame(value):
+        data = json.dumps(value).encode()
+        return struct.pack("=I",len(data))+data
+
+    @staticmethod
+    def replies(data):
+        result=[]
+        while data:
+            size=struct.unpack("=I",data[:4])[0]
+            result.append(json.loads(data[4:4+size])); data=data[4+size:]
+        return result
+
+    def test_native_host_durable_idempotent_handoff_and_private_network_block(self):
+        request={"version":1,"kind":"enqueue","request_id":str(uuid.uuid4()),"url":self.base+"/file?secret=private","filename":"../../evil:stream.exe"}
+        result=self.host(self.frame(request)*2)
+        self.assertEqual(result.returncode,0,result.stderr)
+        replies=self.replies(result.stdout)
+        self.assertTrue(replies[0]["accepted"],replies)
+        self.assertEqual(replies[0]["job_id"],replies[1]["job_id"])
+        self.assertEqual(len(self.command("list")),1)
+        job=self.command("show",replies[0]["job_id"])
+        self.assertTrue(os.path.samefile(Path(job["destination"]).parent,self.directory))
+        self.assertNotIn("secret",json.dumps(job))
+        self.command("run",job["id"],success=False)
+        self.assertEqual(self.command("show",job["id"])["error"],"private_network_blocked")
+
+    def test_native_host_rejects_origin_oversize_and_unknown_fields(self):
+        result=self.host(b"",origin="chrome-extension://"+"b"*32+"/")
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(result.stdout,b"")
+        self.assertNotEqual(self.host(struct.pack("=I",262145)).returncode,0)
+        self.assertNotEqual(self.host(b"\x04\x00").returncode,0)
+        request={"version":1,"kind":"enqueue","request_id":str(uuid.uuid4()),"url":self.base,"filename":"x","headers":{"Cookie":"bad"}}
+        reply=self.replies(self.host(self.frame(request)).stdout)[0]
+        self.assertFalse(reply["accepted"])
+
+    def test_retry_after_persists_and_blocks_other_jobs_on_same_origin(self):
+        for path in ("/cooldown","/date-cooldown"):
+            with self.subTest(path=path):
+                # Distinct state profiles keep the first origin cooldown out of the second case.
+                self.state=self.directory / path.removeprefix("/")
+                job=self.add(path,name=path.removeprefix("/")+".bin")
+                result=self.command("run",job["id"],success=False)
+                self.assertIn("server_throttled",result.stderr)
+                view=self.command("show",job["id"])
+                self.assertGreater(int(view["retry_not_before"]),int(time.time()*1000)+3500000)
+                second=self.add(name=path.removeprefix("/")+"-other.bin")
+                self.assertIn("server_retry_pending",self.command("run",second["id"],success=False).stderr)
+                self.command("queue-run")
+                self.assertEqual(self.command("show",second["id"])["state"],"queued")
+
+    def test_batch_is_bounded_deduplicated_and_does_not_start_jobs(self):
+        request={"url":self.base+"/file?token=batch-secret","destination":str(self.directory / "batch.bin")}
+        result=self.command("batch",input=json.dumps([request,request,{"url":"file:///C:/private","destination":str(self.directory / "bad.bin")}]))
+        self.assertEqual([r["status"] for r in result["results"]],["queued","duplicate","rejected"])
+        self.assertNotIn("batch-secret",json.dumps(result))
+        self.assertEqual(self.command("list")[0]["state"],"queued")
+        self.command("batch",input="[]",success=False)
+
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Use the test-only short scheduling quantum")
+    def test_named_queues_rotate_after_a_durable_checkpoint(self):
+        first=self.add("/slow",name="first-queue.bin")
+        second=self.add(name="second-queue.bin")
+        self.command("policy",first["id"],input=json.dumps({"queue_name":"A","connections":1}))
+        self.command("policy",second["id"],input=json.dumps({"queue_name":"B","connections":1}))
+        db=sqlite3.connect(self.state / "jobs.db")
+        db.executescript("CREATE TABLE audit(id TEXT); CREATE TRIGGER starts AFTER UPDATE OF state ON jobs WHEN new.state='downloading' AND old.state!='downloading' BEGIN INSERT INTO audit VALUES(new.id); END;")
+        db.close()
+        with Fixture.guard:before=Fixture.counters[("/slow","bytes=0-1048575")]
+        result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"queue-run"],env=dict(os.environ,IDMXL_TEST_QUANTUM_MS="500"),capture_output=True,text=True,timeout=35)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.command("show",first["id"])["state"],"completed")
+        self.assertEqual(self.command("show",second["id"])["state"],"completed")
+        db=sqlite3.connect(self.state / "jobs.db")
+        order=[r[0] for r in db.execute("SELECT id FROM audit")];db.close()
+        self.assertEqual(order[:3],[first["id"],second["id"],first["id"]])
+        with Fixture.guard:self.assertEqual(Fixture.counters[("/slow","bytes=0-1048575")]-before,1)
+
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
+    def test_abrupt_exit_at_each_durability_boundary(self):
+        for point in ["after_body_write","after_extent_flush","before_extent_commit","after_extent_commit",
+                      "after_publication_intent","after_origin_metadata","after_rename","before_completion_commit"]:
+            with self.subTest(point=point):
+                job=self.add(name=point+".bin")
+                result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"]],
+                                      env=dict(os.environ,IDMXL_FAULT=point),capture_output=True,timeout=15)
+                self.assertEqual(result.returncode,86,result.stderr)
+                self.assert_completed(job)
 
 
 if __name__ == "__main__":

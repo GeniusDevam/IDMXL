@@ -50,6 +50,30 @@ struct Work {
     ready: Instant,
 }
 
+struct Meter {
+    last: Instant,
+    bytes: u64,
+}
+impl Meter {
+    fn new(bytes: u64) -> Self {
+        Self {
+            last: Instant::now(),
+            bytes,
+        }
+    }
+    fn update(&mut self, store: &Store, id: &str, received: u64, total: Option<u64>) -> Result<()> {
+        let elapsed = self.last.elapsed();
+        if elapsed < Duration::from_millis(250) {
+            return Ok(());
+        }
+        let speed = (received.saturating_sub(self.bytes) as f64 / elapsed.as_secs_f64()) as u64;
+        store.progress(id, received, speed, total)?;
+        self.last = Instant::now();
+        self.bytes = received;
+        Ok(())
+    }
+}
+
 impl Engine {
     pub fn new(store: Store) -> Self {
         Self { store }
@@ -91,10 +115,19 @@ impl Engine {
         if job.state == "publishing" {
             return self.recover_publication(&job);
         }
+        if self.store.retry_deadline(&job.url)?.is_some() {
+            bail!("server_retry_pending");
+        }
         self.store.begin(id)?;
         match self.transfer(id, &options) {
             Ok(()) => self.store.view(id),
             Err(error) => {
+                if let Some(throttle) = error.downcast_ref::<transport::Throttled>()
+                    && let Some(delay) = throttle.delay
+                {
+                    self.store.defer_origin(&job.url, delay)?;
+                    self.store.defer_origin(&throttle.url, delay)?;
+                }
                 let message = error.to_string();
                 let safe = message.split(':').next().unwrap_or("transfer_failed");
                 let known = [
@@ -127,6 +160,8 @@ impl Engine {
                     "probe_transport_failed",
                     "invalid_probe_response",
                     "transfer_interrupted",
+                    "private_network_blocked",
+                    "dns_resolution_failed",
                 ];
                 let code = if known.contains(&safe) {
                     safe
@@ -159,7 +194,11 @@ impl Engine {
             bail!("destination_exists");
         }
         let probe = if job.replayable {
-            Some(transport::probe(&job.url, options.stop.clone())?)
+            Some(transport::probe(
+                &job.url,
+                options.stop.clone(),
+                job.public_only,
+            )?)
         } else {
             None
         };
@@ -253,9 +292,13 @@ impl Engine {
         }
         let file_id = platform::file_id(&file)?;
         self.store.publication_intent(id, size, &digest, &file_id)?;
+        crate::fault::point("after_publication_intent");
         platform::mark_origin(&job.staging)?;
+        crate::fault::point("after_origin_metadata");
         drop(file);
         platform::publish(&job.staging, &job.destination)?;
+        crate::fault::point("after_rename");
+        crate::fault::point("before_completion_commit");
         self.store.complete(id)
     }
 
@@ -277,6 +320,8 @@ impl Engine {
             }
         }
         file.set_len(total)?;
+        let mut durable = self.store.get(&job.id)?.durable;
+        let mut meter = Meter::new(durable);
         let mut pending: VecDeque<Work> = VecDeque::new();
         let mut cursor = 0;
         let multi = Multi::new();
@@ -340,6 +385,7 @@ impl Engine {
                     Some(file.clone()),
                     options.stop.clone(),
                     speed,
+                    job.public_only,
                 )?;
                 token += 1;
                 let mut handle = multi.add2(easy)?;
@@ -347,6 +393,16 @@ impl Engine {
                 active.insert(token, (handle, task));
             }
             multi.perform()?;
+            let in_flight: u64 = active
+                .values()
+                .map(|(handle, _)| handle.get_ref().bytes)
+                .sum();
+            meter.update(
+                &self.store,
+                &job.id,
+                durable.saturating_add(in_flight),
+                Some(total),
+            )?;
             let mut results = Vec::new();
             multi.messages(|message| {
                 if let Some(result) = message.result()
@@ -375,6 +431,14 @@ impl Engine {
                             .then_some("invalid_content_length")
                     });
                 if let Some(error) = error {
+                    if error == "server_throttled"
+                        && let Some(header) = receiver.headers.fields.get("retry-after")
+                        && let Some(delay) = server_delay(header)
+                    {
+                        self.store
+                            .defer_origin(job.resolved_url.as_deref().unwrap_or(&job.url), delay)?;
+                        self.store.defer_origin(&job.url, delay)?;
+                    }
                     let retryable = error == "server_throttled"
                         || (error == "transfer_transport_failed"
                             && result.as_ref().err().is_some_and(|e| {
@@ -405,6 +469,7 @@ impl Engine {
                 }
                 // The file flush precedes every durable extent transaction.
                 file.sync_all()?;
+                crate::fault::point("after_extent_flush");
                 self.store.checkpoint(
                     &job.id,
                     job.generation,
@@ -414,6 +479,7 @@ impl Engine {
                         digest: receiver.digest(),
                     },
                 )?;
+                durable += task.length;
             }
             if active.is_empty() {
                 std::thread::sleep(Duration::from_millis(25));
@@ -439,14 +505,26 @@ impl Engine {
                 Some(file.clone()),
                 options.stop.clone(),
                 options.speed_limit_bytes,
+                job.public_only,
             )?;
             let multi = Multi::new();
             let handle = multi.add2(easy)?;
+            let mut meter = Meter::new(0);
             loop {
                 if self.should_stop(&job.id, options)? {
                     return Ok(());
                 }
-                if multi.perform()? == 0 {
+                let running = multi.perform()?;
+                let receiver = handle.get_ref();
+                if receiver.headers.status == 200 && receiver.error.is_none() {
+                    meter.update(
+                        &self.store,
+                        &job.id,
+                        receiver.bytes,
+                        receiver.headers.length(),
+                    )?;
+                }
+                if running == 0 {
                     break;
                 }
                 multi.wait(&mut [], Duration::from_millis(100))?;
@@ -460,6 +538,16 @@ impl Engine {
             let easy = multi.remove2(handle)?;
             let receiver = easy.get_ref();
             if let Some(error) = receiver.error {
+                if error == "server_throttled"
+                    && let Some(delay) = receiver
+                        .headers
+                        .fields
+                        .get("retry-after")
+                        .and_then(|n| server_delay(n))
+                {
+                    self.store.defer_origin(&job.url, delay)?;
+                    self.store.defer_origin(&resolved, delay)?;
+                }
                 bail!("{error}");
             }
             let status = receiver.headers.status;
@@ -479,7 +567,7 @@ impl Engine {
                 resolved = next.to_string();
                 continue;
             }
-            result.map_err(|_| anyhow::anyhow!("transfer_transport_failed"))?;
+            result.map_err(|error| anyhow::anyhow!(transport::transport_error(&error)))?;
             if status != 200
                 || receiver
                     .headers
@@ -549,13 +637,26 @@ impl Engine {
 
 fn retry_delay(header: Option<&str>, attempt: u32) -> Option<Duration> {
     if let Some(header) = header {
-        let seconds = header.parse::<u64>().ok()?;
-        return (seconds <= 300).then(|| Duration::from_secs(seconds));
+        let delay = server_delay(header)?;
+        return (delay <= Duration::from_secs(300)).then_some(delay);
     }
     let ceiling = 200u128.checked_shl(attempt.min(5)).unwrap_or(6400);
     Some(Duration::from_millis(
         (uuid::Uuid::new_v4().as_u128() % ceiling) as u64,
     ))
+}
+
+pub(crate) fn server_delay(header: &str) -> Option<Duration> {
+    if let Ok(seconds) = header.parse::<u64>() {
+        Some(Duration::from_secs(seconds))
+    } else {
+        Some(
+            httpdate::parse_http_date(header)
+                .ok()?
+                .duration_since(std::time::SystemTime::now())
+                .unwrap_or_default(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -566,7 +667,10 @@ mod tests {
     fn long_or_unparsed_retry_after_never_retries_early() {
         assert_eq!(retry_delay(Some("5"), 1), Some(Duration::from_secs(5)));
         assert!(retry_delay(Some("3600"), 1).is_none());
-        assert!(retry_delay(Some("Thu, 15 Oct 2026 12:00:00 GMT"), 1).is_none());
+        assert!(retry_delay(Some("not a date"), 1).is_none());
+        let soon = std::time::SystemTime::now() + Duration::from_secs(5);
+        let delay = retry_delay(Some(&httpdate::fmt_http_date(soon)), 1).unwrap();
+        assert!(delay > Duration::from_secs(3) && delay <= Duration::from_secs(5));
     }
     #[test]
     fn publication_recovers_after_rename_before_database_commit() {
