@@ -2,7 +2,7 @@
 
 A Windows download manager in early development. The first milestone is a real Rust/libcurl file-transfer engine with durable SQLite checkpoints. The adopted design is in [docs/PLAN.md](docs/PLAN.md); completed work and remaining gates are in [PROGRESS.md](PROGRESS.md).
 
-The current everyday-download/media release candidate is described in [EVERYDAY-RELEASE.md](docs/EVERYDAY-RELEASE.md), including supported paths, manual updates and the unresolved real Edge host connection.
+The current everyday-download/media release candidate is described in [EVERYDAY-RELEASE.md](docs/EVERYDAY-RELEASE.md), including supported paths, manual updates and qualified explicit public-link handoff in Edge.
 
 ## Current capabilities
 
@@ -22,7 +22,7 @@ The current everyday-download/media release candidate is described in [EVERYDAY-
 - Direct media, restricted clear HLS VOD and static DASH, exact rendition/audio selection, audio-only output and verified stream-copy assembly with bundled helpers. See [media workflow](docs/MEDIA.md).
 - Signed-metadata updater, Windows publisher verification and paired application/database recovery. Preview builds have no online authority; [owner setup](docs/UPDATES.md) lists the certificate, key and hosting needed.
 
-This is a development preview. Full IDM parity, default/UI adaptive integration, wake scheduling, strict quotas and Extended workflows remain open. The scoped media workflow is implemented; broader codecs/HDR and named video-site extractors remain unqualified. Real Edge handoff currently reports host-not-found despite valid local registration and is unresolved. Clean-machine/upgrade and trusted production-update qualification remain open. The adaptive benchmark establishes no general or browser speed advantage. See [PROGRESS.md](PROGRESS.md).
+This is a development preview. Full IDM parity, wake scheduling, strict quotas and Extended workflows remain open. Saved default/UI adaptive controls are implemented. The scoped media workflow is implemented; broader codecs/HDR and named video-site extractors remain unqualified. Real Edge connection, explicit context-menu handoff and a completed public source-archive download now pass on the development PC. The installed window/history, controls/dialogs and idle explicit Exit button were also checked. Real opt-in capture and browser media-popup qualification remain open. Clean-machine/upgrade and trusted production-update qualification remain open. The adaptive benchmark establishes no general or browser speed advantage. See [PROGRESS.md](PROGRESS.md).
 
 ## Open the desktop preview
 
@@ -83,7 +83,7 @@ Without `--replayable`, the engine skips probing and uses a single request. Inte
 
 Cancel preserves partial files and prevents further running of that job. The current CLI intentionally does not delete downloads or partials. Only one job runs at a time per profile; a second engine receives `engine_busy`.
 
-`policy <job-id>` reads a JSON object from stdin: `queue_name`, `priority` (-1000..1000), `not_before` (UTC Unix milliseconds), optional `deadline`, `connections` (1..4), `retries` (0..5), and `speed_limit` (bytes/s; zero unlimited). Rate changes apply when a job starts. Schedules run only while the logged-in queue worker is alive; missed start times run when next eligible. Explicitly paused jobs stay paused; global queue pause preserves its current job for the next queue start. Failed jobs require an explicit retry/requeue.
+`policy <job-id>` reads a JSON object from stdin: `queue_name`, `priority` (-1000..1000), `not_before` (UTC Unix milliseconds), optional `deadline`, `connections` (1..4), `retries` (0..5), `adaptive` (boolean), and `speed_limit` (bytes/s; zero unlimited). Rate changes apply when a job starts. Schedules run only while the logged-in queue worker is alive; missed start times run when next eligible. Explicitly paused jobs stay paused; global queue pause preserves its current job for the next queue start. Failed jobs require an explicit retry/requeue.
 
 `batch` reads a JSON array of up to 1,000 objects with `url`, `destination`, optional `replayable` and `expected_sha256`. Each result is reported separately; identical URL/destination pairs within the input are deduplicated. It queues only. `list` exports redacted history, rather than reusable secret URLs. See [browser handoff setup](docs/BROWSER-HANDOFF.md), [media workflow](docs/MEDIA.md) and [release checks](docs/RELEASE-CHECKLIST.md).
 

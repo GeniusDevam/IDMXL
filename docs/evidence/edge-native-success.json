@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-16",
+  "browser": "Microsoft Edge, existing development profile",
+  "extension_id": "kemmnlhepdcdaiadeldcfldgfcojfkhl",
+  "native_engine": "%USERPROFILE%\\AppData\\Local\\Programs\\IDMXL\\idmxl.exe",
+  "connection_status": "IDMXL is connected and ready.",
+  "trigger": "Actual right-click Queue link in IDMXL on a controlled local page linking to the public HTTPS source archive",
+  "public_download": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+  "handoffs_before": 0,
+  "jobs_before": 5,
+  "handoffs_after": 1,
+  "jobs_after": 6,
+  "request_id": "f7ad94d6-3865-411c-a69c-95cca30a5c84",
+  "job_id": "ea132d03-e3dd-4337-8ddb-428edf01e372",
+  "browser_acknowledgement": "Queued in IDMXL. It can start if your queue is running; otherwise open the app to start it.",
+  "state": "completed",
+  "bytes": 12040788,
+  "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+  "independent_hash_matches_packaged_source": true,
+  "internet_zone": 3,
+  "transfer_body_requests": 1,
+  "failed_requests": 0,
+  "mode": "sequential",
+  "queue_left_running": false,
+  "source_archive_executed_or_extracted": false,
+  "sequence": "Registered installed engine; fully exited Edge with Close Microsoft Edge; reopened and user dismissed developer-mode notice; connection and handoff then passed.",
+  "root_cause": "Exact cause of earlier lookup failure not isolated; no browser security setting changed.",
+  "native_ui": {
+    "launch": "passed",
+    "completed_history_shown": 6,
+    "antigravity_details": "Expected destination/hash, 220 transfer requests, zero failures",
+    "policy_controls": "Automatic tuning checked, maximum four, retries two; viewed without changing saved policy",
+    "import_dialog": "Opened and visually inspected; closed without saving or adding",
+    "media_dialog": "Opened and visually inspected; closed without adding",
+    "completion_notifications": "Preference rendered unchecked and left unchanged; actual OS toast not qualified",
+    "exit_interface": "Clicked explicit Exit interface button with idle queue; process exited",
+    "active_download_exit": "Earlier close-window worker-lifecycle evidence remains; no new active-transfer Exit-button claim"
+  },
+  "cleanup": {
+    "browser_diagnostic": "Exited through normal Close Microsoft Edge menu",
+    "fixture_server": "Stopped verified task-created HTTP server",
+    "computer_control": "Node session reset and released"
+  },
+  "remaining_qualification": [
+    "Opt-in capture and browser media popup real-browser cases",
+    "Full native media/import workflows and clipboard/drop actions",
+    "Actual Windows notification presentation",
+    "Clean-machine and broader accessibility/codec/HDR qualification"
+  ]
+}

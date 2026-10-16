@@ -36,8 +36,11 @@
   "installed_engine_helpers_exact_match": true,
   "installed_desktop_matches_after_tauri_bundle_marker": true,
   "native_framed_status_passed": true,
-  "real_edge_status": "native host not found after re-registering installed engine",
-  "native_ui": "Interface launch request timed out; no current GUI qualification claimed",
+  "real_edge_status": "Passed actual Edge connection, explicit link handoff and final file hash",
+  "native_ui": "Fresh installed app launch, six completed jobs, Antigravity details, connection controls, import/media dialogs, completion preference and idle Exit interface passed.",
   "production_updates_configured": false,
-  "notification_gui_tested": false
+  "notification_gui_tested": false,
+  "previous_real_edge_status": "native host not found after re-registering installed engine",
+  "previous_native_ui": "Interface launch request timed out; no current GUI qualification claimed",
+  "followup_evidence": "edge-native-success.json"
 }

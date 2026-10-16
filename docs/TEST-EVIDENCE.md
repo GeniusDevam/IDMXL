@@ -121,7 +121,6 @@ Visual QA identified low-contrast dark-mode secondary text and light footer/cont
 TypeScript/Vite and the native optimized build passed. The first packaging attempt encountered a file-in-use error while the rebuilt QA executable was open; that attempt is not counted as a successful bundle. After stopping the QA process by its verified executable path, the retry produced the unsigned 3,798,994-byte NSIS installer successfully. Its exported copy matched SHA-256 `c1b2f79b4d7afdfb22739e26b6423d147019905a394d51d058de22ba71804b22`. The uninstall smoke used the existing isolated preview installation; the final CSS-only package was not installed again. Engine code and dependencies were unchanged; the existing 55 distinct automated cases remain the engine/protocol evidence. Machine-readable state/file/uninstall/artifact results are in `docs/evidence/native-retry.json`.
 
 
-
 ## 16 October 2026: everyday release candidate and real Antigravity download
 
 Implementation checkpoint `a1ac387` adds saved automatic/fixed connection controls, durable failed-request budgets and history, review-before-adding paste/drop import, conservative expired-link replacement, unique completion events and optional fixed-text notifications, plus explicit interface exit. Schema v6 creates an idle v5 snapshot; updater recovery accepts v6. Link renewal with saved bytes requires the original expected SHA-256 and matching origin/path, strong ETag, total length and range support. Rejected candidates keep the old protected source and checkpoints.
@@ -138,3 +137,13 @@ Real Edge still reported native host not found after registering the installed e
 
 
 Fresh [Windows CI](https://github.com/GeniusDevam/IDMXL/actions/runs/38896405636) passed for implementation checkpoint `a1ac387`, including all fixture/frontend and native desktop checks. The final evidence follow-up changes documentation only.
+
+## Follow-up: real Edge handoff and installed interface passed
+
+After the user dismissed the developer-mode notice, Edge's connection check reported **IDMXL is connected and ready**. An actual right-click **Queue link in IDMXL** on a controlled loopback page linking to the public FFmpeg HTTPS source archive produced one durable handoff and one queued job. The extension acknowledged the queue operation. The installed engine then completed that job in one sequential body request with no failures. The 12,040,788-byte file has SHA-256 `8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`, independently matching the packaged source archive. Its Internet ZoneId is 3. There are now six completed jobs, including all four earlier QA jobs and Antigravity; the queue remains stopped. Neither archive nor Antigravity was executed.
+
+The successful sequence followed registration of the installed engine and a full normal Edge exit/restart. The precise cause of earlier lookup failure was not isolated, and no browser security setting was changed. Earlier pending/host-not-found statements above are historical and superseded for this explicit-link path. Real optional capture and browser-media cases remain unqualified.
+
+The installed IDMXL window launched successfully on this follow-up. Its visible six-job completed history, Antigravity destination/hash and 220/0 request/failure counts, automatic connection setting with maximum four/retries two, import/media dialog layouts and unchecked completion preference were inspected. Dialogs were closed without adding jobs or saving preferences. The explicit **Exit interface — keep downloads running** button exited the interface with an idle queue. This supersedes the earlier launch timeout; actual OS toast presentation, full import/media/paste/drop workflows and an active-transfer Exit-button case are not newly claimed. Earlier close-window background-worker evidence remains separate.
+
+Edge was exited normally to stop temporary diagnostic logging; the task-created loopback server was stopped and computer control released. No runtime code changed, so the existing 95 automated checks and passing CI remain the validation baseline. These additional manual checks are recorded separately in `docs/evidence/edge-native-success.json` (repository root) / `evidence/edge-native-success.json` (this documentation directory).

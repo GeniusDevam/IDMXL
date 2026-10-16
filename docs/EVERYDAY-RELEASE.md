@@ -32,8 +32,8 @@ DRM, encrypted streams, live streams, browser sessions, blob-only players, arbit
 
 Optional Windows completion notifications are off by default and available in **About this preview**. They require the interface to remain running, are best effort under Windows notification settings, and use fixed text without filenames or source URLs. Completion history is authoritative even when a notification is suppressed.
 
-The development extension and native host are included. Protocol and extension fixtures pass, but the real Edge connection on the development PC still reports **native host not found**. Browser integration is not yet qualified for consumer release. Paste a file link directly into IDMXL while that issue is investigated. See [BROWSER-HANDOFF.md](BROWSER-HANDOFF.md).
+The development extension and native host are included. Actual Edge connection and right-click public-link handoff passed on the development PC, followed by a completed file with the expected independent hash. Register the installed engine and the exact extension ID; fully exit and reopen Edge after setup if necessary. Chrome, store publication, real automatic-capture and browser media-popup qualification remain separate work. See [BROWSER-HANDOFF.md](BROWSER-HANDOFF.md).
 
 ## Status and evidence
 
-This is a usable private release candidate for the supported paths, not full IDM feature parity or a qualified public release. Current evidence and unresolved qualification are in [TEST-EVIDENCE.md](TEST-EVIDENCE.md), [FEATURES.md](FEATURES.md) and [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md). Code signing, clean-machine/browser qualification, broader codec/HDR coverage and distribution notices remain release work.
+This is a usable private release candidate for the supported paths, not full IDM feature parity or a qualified public release. Current evidence and unresolved qualification are in [TEST-EVIDENCE.md](TEST-EVIDENCE.md), [FEATURES.md](FEATURES.md) and [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md). Code signing, clean-machine and broader browser/workflow qualification, codec/HDR coverage and distribution notices remain release work.

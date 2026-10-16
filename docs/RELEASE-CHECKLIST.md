@@ -20,9 +20,9 @@ For manual recovery, keep the original profile intact first. With all app/engine
 
 ## Still required for Core
 
-- Real Edge installation, context-menu handoff and fallback testing; store acceptance is independent.
+- Real opt-in capture/browser-media cases, wider browser/failure qualification and store acceptance. Basic real Edge connection, context-menu handoff, durable receipt and completed public-file hash now pass on the development PC.
 - Clean Windows 11 x64 VM installation without developer runtimes; upgrade and broader uninstall preservation checks. One isolated development-machine silent uninstall passed on 16 October 2026.
 - Real trusted update installation, certificate/key rotation and operator recovery rehearsal. Signature/freshness/replay and separate-profile recovery fixtures pass; they do not substitute for a trusted Windows update round trip.
 - Physical storage power-loss, disk-full, permissions, reparse race, removable/network filesystem and sleep/network-change qualification.
-- Wake/timezone-transition qualification, broad adaptive benchmarks and accessibility. Default/UI adaptive controls, durable retry counts, paste/drop and scoped link renewal are implemented; final native presentation/notification qualification remains. Recurring queue hours and import folder rules have scoped fixture/native evidence in WORKFLOWS.md.
+- Wake/timezone-transition qualification, broad adaptive benchmarks and accessibility. Default/UI adaptive controls, durable retry counts, paste/drop and scoped link renewal are implemented; the installed window/history, controls/dialogs and idle explicit Exit button have been inspected, while full workflow/accessibility and actual notification presentation qualification remain. Recurring queue hours and import folder rules have scoped fixture/native evidence in WORKFLOWS.md.
 - Licence/notice closure and artifact-bound release SBOM. No speed advantage, full filesystem support or complete IDM parity is claimed.

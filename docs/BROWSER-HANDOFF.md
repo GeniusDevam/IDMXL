@@ -35,3 +35,9 @@ The same `idmxl.exe` is the stdio native host. It requires an exact allowed exte
 Browser-origin requests validate all DNS answers on each request and redirect and pin transport to public addresses. Loopback/private/link-local/mapped/multicast/special-use addresses and environment proxies are rejected. Desktop/CLI input can intentionally address an intranet. No cookies, POST replay or enterprise sessions are transferred. Standard tests cover hostile frames, durable duplicate handling and capture failure/restart sequences; real-browser evidence and remaining qualification are in [TEST-EVIDENCE.md](TEST-EVIDENCE.md).
 
 Primary references: [Edge native messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging), [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), [optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions).
+
+## Qualified setup sequence on 16 October 2026
+
+With the installed engine registered, the earlier host-not-found status cleared after fully exiting Edge through **Settings and more → Close Microsoft Edge**, reopening it and having the user dismiss its developer-mode notice. Closing only a window had not resolved the earlier failure. The exact lookup-failure cause was not isolated; no browser security setting was changed. Use the popup's **Check IDMXL connection** to confirm readiness before testing a handoff.
+
+An actual right-click on a controlled local page's public HTTPS source-archive link created one durable request and one queued job. The popup acknowledged it. Running that native job completed a 12,040,788-byte file whose independent SHA-256 matched the packaged original source and whose Internet ZoneId was 3. This qualifies the explicit-link path on this development profile, not automatic capture, every browser or extension-store distribution. See `evidence/edge-native-success.json`.
