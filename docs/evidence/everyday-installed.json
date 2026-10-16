@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-16",
+  "schema": 6,
+  "integrity": "ok",
+  "original_jobs_preserved": [
+    {
+      "id": "6115109a-23d2-455b-a55c-aca333c77268",
+      "state": "completed",
+      "bytes": 3145737,
+      "sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+      "file_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281"
+    },
+    {
+      "id": "d4e0df2f-73d6-4e8d-b653-f4017230b543",
+      "state": "completed",
+      "bytes": 3145737,
+      "sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+      "file_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281"
+    },
+    {
+      "id": "b7f4e75c-8772-48b2-b9d4-7185cc7346f4",
+      "state": "completed",
+      "bytes": 3145737,
+      "sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+      "file_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281"
+    },
+    {
+      "id": "24de9f73-effa-43c5-8ded-026e3544dd65",
+      "state": "completed",
+      "bytes": 3145737,
+      "sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+      "file_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281"
+    }
+  ],
+  "v5_snapshot_exists": true,
+  "installed_engine_helpers_exact_match": true,
+  "installed_desktop_matches_after_tauri_bundle_marker": true,
+  "native_framed_status_passed": true,
+  "real_edge_status": "native host not found after re-registering installed engine",
+  "native_ui": "Interface launch request timed out; no current GUI qualification claimed",
+  "production_updates_configured": false,
+  "notification_gui_tested": false
+}

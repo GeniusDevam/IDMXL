@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-16",
+  "implementation_commit": "a1ac3871fb309410ac5399ff7a8a94c6a6a77e3b",
+  "counts": {
+    "rust": 32,
+    "python": 52,
+    "node": 10,
+    "separate_large_file": 1,
+    "distinct_passed": 95,
+    "ordinary_python_resource_skip": 1
+  },
+  "python_suite_seconds": 269.756,
+  "frontend_build": "passed",
+  "root_fmt_clippy": "passed",
+  "native_fmt_clippy": "passed",
+  "nsis_build": "passed",
+  "inventory": {
+    "components": 379,
+    "notice_files": 561,
+    "missing_root_notice_review_entries": 44,
+    "cyclonedx_1_6_schema_errors": 0
+  },
+  "existing_completed_jobs_preserved": 4,
+  "global_completed_jobs_after_antigravity": 5,
+  "antigravity": {
+    "job_id": "e3f4a19f-24eb-483f-b28d-0050d0bfd97b",
+    "bytes": 227712776,
+    "sha256": "a8c25631fd5e43bf217a6cf510ca796441817f4ad9c50b1d892282c7366edc4a",
+    "google_signature": "Valid",
+    "pause_resume_preserved_checkpoint": true,
+    "failed_requests": 0
+  },
+  "resource": {
+    "total_bytes": "4294967553",
+    "sha256": "f69b5a49cb06ef8cfb5c521d994afe33b74dbb0358fd15e8d56dbc3a2cbba46e",
+    "path_characters": 397,
+    "elapsed_seconds": 233.09,
+    "state": "completed",
+    "fixture": "Distinct SHA-256-derived pattern per 64 KiB block, including offset bits above 4 GiB"
+  },
+  "resource_trace_note": "Same transfer implementation; final capability descriptions were corrected afterward and unit tests/build repeated. No transfer logic changed after this resource run.",
+  "ci_url": "https://github.com/GeniusDevam/IDMXL/actions/runs/38896405636",
+  "ci_status_at_save": "completed: success",
+  "real_edge": "Native host not found before diagnostics; final diagnostic test awaiting user dismissal of developer-mode security notice.",
+  "native_gui": "Launch request timed out; new controls/notification presentation not manually qualified.",
+  "computer_control": "Released after each short UI session; no Antigravity installer execution."
+}

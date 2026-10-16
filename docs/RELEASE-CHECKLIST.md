@@ -12,9 +12,9 @@ The preview is unsigned. Do not bypass SmartScreen or other Windows protections.
 
 ## Upgrades and database recovery
 
-Pause the queue and active transfers, wait for their checkpointed stop, and exit the interface from the tray before replacing app files. A background queue/engine can outlive the visible window. Existing-profile migration refuses to proceed while an engine owns its lock.
+Pause the queue and active transfers, wait for their checkpointed stop, and exit the interface from About or the tray before replacing app files. A background queue/engine can outlive the visible window. Existing-profile migration refuses to proceed while an engine owns its lock.
 
-Upgrades from schema v1/v2 create `jobs-v1-<uuid>.sqlite` / `jobs-v2-<uuid>.sqlite` snapshots in the profile before changing that version. The snapshots include committed WAL data. Migration/future-version/idle-lock fixtures cover these transitions. Snapshot URLs remain protected for the same Windows user; do not treat them as a portable secret export.
+Upgrades from schema v1/v2 create `jobs-v1-<uuid>.sqlite` / `jobs-v2-<uuid>.sqlite` snapshots in the profile before changing that version. Upgrades from later supported schemas also create their matching pre-migration snapshot, including v5 before v6. The snapshots include committed WAL data. Migration/future-version/idle-lock fixtures cover these transitions. Snapshot URLs remain protected for the same Windows user; do not treat them as a portable secret export.
 
 For manual recovery, keep the original profile intact first. With all app/engine writers stopped, copy the matching snapshot into a separate recovery profile as `jobs.db`, without stale WAL/SHM files, and use the corresponding compatible application version. Retain referenced staging/final files. Resume verifies saved extents and source identity; a missing/changed partial may require a new generation. An old executable must not open a newer schema. These manual steps remain available for older snapshots. The updater also saves matching previous binaries and a protected receipt; update-recover validates it and creates a separate restored profile. See UPDATES.md. Trusted installation/recovery qualification remains open.
 
@@ -24,5 +24,5 @@ For manual recovery, keep the original profile intact first. With all app/engine
 - Clean Windows 11 x64 VM installation without developer runtimes; upgrade and broader uninstall preservation checks. One isolated development-machine silent uninstall passed on 16 October 2026.
 - Real trusted update installation, certificate/key rotation and operator recovery rehearsal. Signature/freshness/replay and separate-profile recovery fixtures pass; they do not substitute for a trusted Windows update round trip.
 - Physical storage power-loss, disk-full, permissions, reparse race, removable/network filesystem and sleep/network-change qualification.
-- Wake/timezone-transition qualification, default/UI adaptive concurrency and broad benchmarks, remaining Core workflows and accessibility. Recurring queue hours and import folder rules have scoped fixture/native evidence in WORKFLOWS.md.
+- Wake/timezone-transition qualification, broad adaptive benchmarks and accessibility. Default/UI adaptive controls, durable retry counts, paste/drop and scoped link renewal are implemented; final native presentation/notification qualification remains. Recurring queue hours and import folder rules have scoped fixture/native evidence in WORKFLOWS.md.
 - Licence/notice closure and artifact-bound release SBOM. No speed advantage, full filesystem support or complete IDM parity is claimed.

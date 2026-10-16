@@ -1,0 +1,8 @@
+{
+  "total_bytes": "4294967553",
+  "sha256": "f69b5a49cb06ef8cfb5c521d994afe33b74dbb0358fd15e8d56dbc3a2cbba46e",
+  "path_characters": 397,
+  "elapsed_seconds": 233.09,
+  "state": "completed",
+  "fixture": "Distinct SHA-256-derived pattern per 64 KiB block, including offset bits above 4 GiB"
+}

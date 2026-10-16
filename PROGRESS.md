@@ -133,3 +133,9 @@ The user selected everyday downloads and media as the first release scope. Exten
 - [x] Schema v6 with an idle v5 snapshot; updater snapshot/restore accepts the new schema.
 
 Real Edge connection was retried in its installed extension page: the browser still reports native host not found. The same user owns the browser and registration, paths/configuration exist and direct framed protocol tests pass. No browser security setting was changed. Computer control was released immediately afterward. This is a known unresolved Core browser qualification issue; the product is not represented as full IDM parity or ready for public distribution.
+
+
+Final local validation: 95 distinct passing checks (32 Rust, 52 Python, 10 Node and a separate real >4 GiB/Unicode-path case), native checks, frontend and NSIS. Final current-user installation preserves the four earlier jobs and files. The official Antigravity IDE 2.5.5 x64 installer was downloaded through the installed IDMXL engine, paused/resumed without first-block refetch, independently hashed and verified as signed by Google LLC; it is left unexecuted in Downloads. There are now five completed jobs and the queue is stopped. Inventory: 379 components / 561 notice files / 44 review entries / zero schema errors. The fresh private CI run is https://github.com/GeniusDevam/IDMXL/actions/runs/38896405636 (status recorded in evidence). New native UI launch timed out; the final Edge diagnostic check awaits user dismissal of its developer-mode security notice. These do not count as completed GUI/browser qualification.
+
+
+Fresh [Windows CI](https://github.com/GeniusDevam/IDMXL/actions/runs/38896405636) passed for implementation checkpoint `a1ac387`, including all fixture/frontend and native desktop checks. The final evidence follow-up changes documentation only.
