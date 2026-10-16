@@ -1,6 +1,6 @@
 # IDMXL everyday downloads and media
 
-This release targets Windows 11 x64 and local NTFS folders. Advanced FTP, website crawling, synchronization, proxy/authentication adapters and ZIP preview remain outside this release. The private preview is unsigned; online update authority is unset and updates are installed manually.
+This release targets Windows 11 x64 and local NTFS folders. Advanced FTP, website crawling, synchronization, proxy/authentication adapters and ZIP preview remain outside this release. Preview binaries are unsigned; online update authority is unset and updates are installed manually. Public prebuilt installers have not been published; see the repository README for source-build instructions.
 
 ## Download a file
 
@@ -36,4 +36,4 @@ The development extension and native host are included. Actual Edge connection a
 
 ## Status and evidence
 
-This is a usable private release candidate for the supported paths, not full IDM feature parity or a qualified public release. Current evidence and unresolved qualification are in [TEST-EVIDENCE.md](TEST-EVIDENCE.md), [FEATURES.md](FEATURES.md) and [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md). Code signing, clean-machine and broader browser/workflow qualification, codec/HDR coverage and distribution notices remain release work.
+This is a usable development release candidate for the supported paths, not full IDM feature parity or a qualified public binary release. Current evidence and unresolved qualification are in [TEST-EVIDENCE.md](TEST-EVIDENCE.md), [FEATURES.md](FEATURES.md) and [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md). Public source availability does not close code signing, clean-machine and broader browser/workflow qualification, codec/HDR coverage or distribution-notice work.

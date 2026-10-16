@@ -15,4 +15,10 @@
 /.test-output/
 __pycache__/
 *.pyc
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.p12
 

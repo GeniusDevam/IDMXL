@@ -1,11 +1,11 @@
 # Signed updates and setup
 
-The updater code exists, but ordinary preview builds intentionally have no online update authority. **About this preview → Check for updates** reports that configuration is missing and makes no network request. No production signing key, certificate, account, paid service or endpoint has been created on the user's behalf.
+The updater code exists, but ordinary preview builds intentionally have no online update authority. **About this preview → Check for updates** reports that configuration is missing and makes no network request. Production signing credentials and an update endpoint have not been configured.
 
 ## What the owner needs
 
-1. A Windows Authenticode code-signing certificate and access to its private key through the Windows certificate store. Choose a provider that supports the intended local or CI signer. Keep the provider's timestamp service address. Do not send private keys or certificate passwords in chat.
-2. An HTTPS address for the stable release envelope and an HTTPS origin for immutable installer files. The private GitHub source repository remains private. An ordinary unauthenticated updater cannot download private GitHub release assets without a separate authenticated distribution design. Use a public artifact-only origin, or establish that private distribution design before deployment.
+1. A Windows Authenticode code-signing certificate and access to its private key through the Windows certificate store. Choose a provider that supports the intended local or CI signer. Keep the provider's timestamp service address. Keep private keys and certificate passwords outside the repository, issue tracker and logs.
+2. An HTTPS address for the stable release envelope and an HTTPS origin for immutable installer files. Source repository visibility does not configure an update service. Draft release assets are not public downloads, and unauthenticated clients cannot retrieve private assets. Publish qualified artifacts on the approved public origin, or design authenticated distribution before deployment.
 3. A separate Ed25519 release-metadata key, encrypted offline backup and an assigned release owner. Its public key and the approved certificate thumbprint are embedded at build time. They cannot be changed through an app setting or a downloaded manifest.
 
 ## Prepare a release
