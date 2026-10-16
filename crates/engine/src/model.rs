@@ -51,6 +51,7 @@ pub struct JobPolicy {
     pub connections: u8,
     pub retries: u8,
     pub speed_limit: u64,
+    pub adaptive: bool,
 }
 
 impl Default for JobPolicy {
@@ -63,6 +64,7 @@ impl Default for JobPolicy {
             connections: 2,
             retries: 2,
             speed_limit: 0,
+            adaptive: false,
         }
     }
 }
@@ -89,12 +91,16 @@ pub struct JobView {
     pub error: Option<String>,
     pub file_available: bool,
     pub queue_window_open: bool,
+    pub transfer_requests: String,
+    pub failed_requests: String,
 }
 
 impl From<Job> for JobView {
     fn from(job: Job) -> Self {
         Self {
             queue_window_open: true,
+            transfer_requests: "0".into(),
+            failed_requests: "0".into(),
             name: job
                 .destination
                 .file_name()

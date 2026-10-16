@@ -42,10 +42,10 @@ impl Store {
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
         let version: u32 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > 5 {
+        if version > 6 {
             bail!("database_version_unsupported");
         }
-        let idle_locks = if version > 0 && version < 5 {
+        let idle_locks = if version > 0 && version < 6 {
             let mut locks = Vec::new();
             for name in ["engine.lock", "scheduler.lock"] {
                 let lock = std::fs::OpenOptions::new()
@@ -123,6 +123,16 @@ impl Store {
                 )?;
             }
             db.execute_batch(include_str!("../migrations/005_product_layers.sql"))?;
+        }
+        if version < 6 {
+            if version == 5 {
+                let backup = directory.join(format!("jobs-v5-{}.sqlite", Uuid::new_v4()));
+                db.execute(
+                    "VACUUM INTO ?1",
+                    [backup.to_str().context("non_unicode_path")?],
+                )?;
+            }
+            db.execute_batch(include_str!("../migrations/006_everyday.sql"))?;
         }
         drop(idle_locks);
         Ok(Self {
@@ -245,6 +255,13 @@ impl Store {
             "INSERT INTO policies(job_id,queue_name) VALUES (?1,?2)",
             params![id, queue],
         )?;
+        if request.replayable {
+            transaction.execute("UPDATE policies SET connections=4 WHERE job_id=?1", [&id])?;
+            transaction.execute(
+                "INSERT INTO settings VALUES(?1,'true')",
+                [format!("adaptive:{id}")],
+            )?;
+        }
         transaction.execute(
             "INSERT INTO job_origins VALUES (?1,?2)",
             params![id, url.origin().ascii_serialization()],
@@ -321,6 +338,7 @@ impl Store {
     pub fn view(&self, id: &str) -> Result<JobView> {
         let mut view: JobView = self.get(id)?.into();
         view.queue_window_open = self.queue_open(&view.policy.queue_name)?;
+        (view.transfer_requests, view.failed_requests) = self.request_counts(id)?;
         Ok(view)
     }
     pub fn list(&self) -> Result<Vec<JobView>> {
@@ -338,6 +356,9 @@ impl Store {
             bail!("invalid_control_action");
         }
         let job = self.get(id)?;
+        if action == "queued" && job.state == "failed" {
+            self.reset_retry_budget(id)?;
+        }
         if job.state == "preparing_media" && action != "canceled" {
             bail!("media_preparation_incomplete");
         }
@@ -448,7 +469,10 @@ impl Store {
         Ok(())
     }
     pub(crate) fn complete(&self, id: &str) -> Result<()> {
-        self.db.execute("UPDATE jobs SET state='completed',durable=total,received=total,speed=0,eta=NULL,requested='run',error=NULL WHERE id=?1",[id])?;
+        let transaction = self.db.unchecked_transaction()?;
+        transaction.execute("UPDATE jobs SET state='completed',durable=total,received=total,speed=0,eta=NULL,requested='run',error=NULL WHERE id=?1",[id])?;
+        transaction.execute("INSERT OR IGNORE INTO completion_events(job_id,created) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM media_components WHERE job_id=?1)",params![id,now()])?;
+        transaction.commit()?;
         Ok(())
     }
     pub(crate) fn recover_active(&self) -> Result<()> {
@@ -474,9 +498,11 @@ impl Store {
     }
 
     pub fn policy(&self, id: &str) -> Result<JobPolicy> {
-        Ok(self.db.query_row("SELECT queue_name,priority,not_before,deadline,connections,retries,speed_limit FROM policies WHERE job_id=?1", [id], |r| Ok(JobPolicy {
-            queue_name:r.get(0)?,priority:r.get(1)?,not_before:r.get(2)?,deadline:r.get(3)?,connections:r.get(4)?,retries:r.get(5)?,speed_limit:r.get(6)?
-        }))?)
+        let mut policy = self.db.query_row("SELECT queue_name,priority,not_before,deadline,connections,retries,speed_limit FROM policies WHERE job_id=?1", [id], |r| Ok(JobPolicy {
+            queue_name:r.get(0)?,priority:r.get(1)?,not_before:r.get(2)?,deadline:r.get(3)?,connections:r.get(4)?,retries:r.get(5)?,speed_limit:r.get(6)?,adaptive:false
+        }))?;
+        policy.adaptive = self.setting_bool(&format!("adaptive:{id}"), false)?;
+        Ok(policy)
     }
 
     pub fn set_policy(&self, id: &str, policy: &JobPolicy) -> Result<JobView> {
@@ -493,8 +519,11 @@ impl Store {
             bail!("invalid_queue_policy");
         }
         self.get(id)?;
-        self.db.execute("UPDATE policies SET queue_name=?1,priority=?2,not_before=?3,deadline=?4,connections=?5,retries=?6,speed_limit=?7 WHERE job_id=?8",
+        let transaction = self.db.unchecked_transaction()?;
+        transaction.execute("UPDATE policies SET queue_name=?1,priority=?2,not_before=?3,deadline=?4,connections=?5,retries=?6,speed_limit=?7 WHERE job_id=?8",
             params![policy.queue_name.trim(),policy.priority,policy.not_before,policy.deadline,policy.connections,policy.retries,policy.speed_limit,id])?;
+        transaction.execute("INSERT INTO settings VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("adaptive:{id}"),policy.adaptive.to_string()])?;
+        transaction.commit()?;
         self.view(id)
     }
 
@@ -595,7 +624,7 @@ mod tests {
                 expected_sha256: None,
             })
             .unwrap();
-        store.db.execute_batch("DROP TABLE media_components; DROP TABLE media_jobs; DROP TABLE capture_handoffs; DROP TABLE queue_windows; DROP INDEX jobs_destination_lookup; PRAGMA user_version=3;").unwrap();
+        store.db.execute_batch("DROP TABLE request_attempts; DROP TABLE completion_events; DROP TABLE media_components; DROP TABLE media_jobs; DROP TABLE capture_handoffs; DROP TABLE queue_windows; DROP INDEX jobs_destination_lookup; PRAGMA user_version=3;").unwrap();
         drop(store);
         let lock = std::fs::OpenOptions::new()
             .create(true)
@@ -620,7 +649,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            5
+            6
         );
         let path = std::fs::read_dir(root.path())
             .unwrap()
@@ -674,7 +703,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            5
+            6
         );
         let backup = std::fs::read_dir(root.path())
             .unwrap()

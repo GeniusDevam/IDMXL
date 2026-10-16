@@ -744,6 +744,11 @@ label > small {
 .destination-input > button {
   margin-top: 7px;
 }
+.check-label { display:flex; align-items:center; gap:9px; font-size:12px; margin:14px 0; }
+.check-label > input { width:16px; height:16px; margin:0; flex:none; }
+.details > form { margin-top:18px; }
+.details > form > label { display:block; font-size:12px; }
+.details > form input { margin-top:8px; }
 .checkbox {
   display: flex;
   gap: 10px;

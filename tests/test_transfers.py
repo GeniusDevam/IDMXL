@@ -40,6 +40,12 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         with self.guard:
             self.counters[(path, byte_range)] += 1
             attempt = self.counters[(path, byte_range)]
+        if path == "/retry-crash" and byte_range not in ("", "bytes=0-0") and not getattr(self.server, "retry_healthy", False):
+            self.send_response(429)
+            self.send_header("Retry-After", "0")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "/file")
@@ -75,7 +81,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             self.send_response(206)
             claimed_end = end + 1 if path == "/malformed" and byte_range != "bytes=0-0" else end
             self.send_header("Content-Range", f"bytes {start}-{claimed_end}/{len(DATA)}")
-            tag = 'W/"v1"' if path == "/weak" else ('"v2"' if path == "/changed" and start > 0 else '"v1"')
+            tag = 'W/"v1"' if path == "/weak" else ('"v2"' if (path == "/changed" and start > 0) or (path == "/slow" and "changed=1" in self.path) else '"v1"')
             self.send_header("ETag", tag)
         else:
             body = DATA
@@ -626,6 +632,64 @@ class TransferTests(unittest.TestCase):
         order=[r[0] for r in db.execute("SELECT id FROM audit")];db.close()
         self.assertEqual(order[:3],[first["id"],second["id"],first["id"]])
         with Fixture.guard:self.assertEqual(Fixture.counters[("/slow","bytes=0-1048575")]-before,1)
+
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
+    def test_failed_retry_budget_survives_repeated_process_loss(self):
+        self.server.retry_healthy = False
+        job = self.add("/retry-crash")
+        try:
+            for _ in range(3):
+                result = subprocess.run([os.environ["IDMXL_FAULT_EXE"], "--state-dir", str(self.state), "run", job["id"], "--connections", "1", "--retries", "2"],
+                                        env=dict(os.environ, IDMXL_FAULT="after_retry_record"), capture_output=True, timeout=15)
+                self.assertEqual(result.returncode, 86, result.stderr)
+            with Fixture.guard:
+                before = Fixture.counters[("/retry-crash", "bytes=0-1048575")]
+            result = self.command("run", job["id"], "--connections", "1", "--retries", "2", success=False)
+            self.assertIn("retry_exhausted", result.stderr)
+            with Fixture.guard:
+                self.assertEqual(Fixture.counters[("/retry-crash", "bytes=0-1048575")], before)
+            current = self.command("show", job["id"])
+            self.assertEqual(current["failed_requests"], "3")
+            self.server.retry_healthy = True
+            self.assert_completed(job, "ranged")
+            current = self.command("show", job["id"])
+            self.assertEqual(current["failed_requests"], "3")
+            self.assertGreater(int(current["transfer_requests"]), 3)
+        finally:
+            self.server.retry_healthy = False
+
+    def test_refresh_expired_link_preserves_only_matching_checkpoints(self):
+        job = self.add("/slow?token=old")
+        process = self.start(job, "--connections", "1")
+        self.wait_checkpoint(job, process)
+        self.command("pause", job["id"])
+        process.communicate(timeout=10)
+        paused = self.command("show", job["id"])
+        self.assertEqual(paused["state"], "paused")
+        self.assertGreater(int(paused["durable_bytes"]), 0)
+        for url, code in [(self.base + "/slow?changed=1", "resource_changed"),
+                          (self.base + "/file?token=new", "source_identity_unproven")]:
+            result = self.command("refresh-source", job["id"], input=json.dumps({"url": url}), success=False)
+            self.assertIn(code, result.stderr)
+        refreshed = self.command("refresh-source", job["id"], input=json.dumps({"url": self.base + "/slow?token=new"}))
+        self.assertEqual(refreshed["durable_bytes"], paused["durable_bytes"])
+        self.assertEqual(refreshed["generation"], paused["generation"])
+        self.assertNotIn("token", json.dumps(refreshed))
+        with Fixture.guard:
+            before = Fixture.counters[("/slow", "bytes=0-1048575")]
+        self.assert_completed(job, "ranged")
+        with Fixture.guard:
+            self.assertEqual(Fixture.counters[("/slow", "bytes=0-1048575")], before)
+
+    def test_refresh_without_expected_digest_cannot_reuse_bytes(self):
+        job = self.add("/slow?token=old", digest=None)
+        process = self.start(job, "--connections", "1")
+        self.wait_checkpoint(job, process)
+        self.command("pause", job["id"])
+        process.communicate(timeout=10)
+        result = self.command("refresh-source", job["id"], input=json.dumps({"url": self.base + "/slow?token=new"}), success=False)
+        self.assertIn("source_identity_unproven", result.stderr)
+        self.assertGreater(int(self.command("show", job["id"])["durable_bytes"]), 0)
 
     @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
     def test_abrupt_exit_at_each_durability_boundary(self):

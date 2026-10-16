@@ -79,6 +79,8 @@ enum Command {
     MediaAdd,
     /// Show the chosen media tracks without revealing their URLs.
     MediaDetails { id: String },
+    /// Replace an expired file URL from JSON stdin, retaining only provably matching checkpoints.
+    RefreshSource { id: String },
     /// Check authenticated release metadata; unconfigured previews do not access the network.
     UpdateCheck,
     /// Restore an update backup into a separate profile, preserving the current profile.
@@ -182,6 +184,15 @@ fn run() -> Result<()> {
                     stop,
                 },
             )?)?
+        }
+        Command::RefreshSource { id } => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Input {
+                url: String,
+            }
+            let request: Input = read_json(20000)?;
+            serde_json::to_value(store.refresh_source(&id, &request.url)?)?
         }
         Command::List => serde_json::to_value(store.list()?)?,
         Command::Show { id } => serde_json::to_value(store.view(&id)?)?,

@@ -7,6 +7,7 @@ import { ImportLinks, QueueHours } from "./workflows";
 import { displayPath } from "./paths";
 import { MediaDialog, MediaDetails } from "./media";
 import { Updates } from "./updates";
+import { importableLinks } from "./links";
 
 type Job = {
   id: string;
@@ -28,6 +29,8 @@ type Job = {
   error: string | null;
   file_available: boolean;
   queue_window_open: boolean;
+  transfer_requests: string;
+  failed_requests: string;
 };
 type Policy = {
   queue_name: string;
@@ -35,6 +38,7 @@ type Policy = {
   not_before: number;
   deadline: number | null;
   connections: number;
+  adaptive: boolean;
   retries: number;
   speed_limit: number;
 };
@@ -141,6 +145,9 @@ function App() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [renewedUrl, setRenewedUrl] = useState("");
+  const [notifyCompleted, setNotifyCompleted] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [url, setUrl] = useState("");
   const [destination, setDestination] = useState("");
@@ -184,8 +191,57 @@ function App() {
       void invoke<Record<string, unknown>>("capabilities")
         .then(setCaps)
         .catch(() => {});
+    if (native)
+      void invoke<{ notify: boolean }>("completion_settings")
+        .then((settings) => setNotifyCompleted(settings.notify))
+        .catch(() => {});
     const timer = window.setInterval(() => void refresh(), 750);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!native) return;
+    function review(text: string) {
+      const links = importableLinks(text);
+      if (!links) return false;
+      setImportText(links);
+      setShowImport(true);
+      return true;
+    }
+    function paste(event: ClipboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest("input, textarea, select, [contenteditable='true']") ||
+        document.querySelector("dialog[open]")
+      )
+        return;
+      if (review(event.clipboardData?.getData("text/plain") || ""))
+        event.preventDefault();
+    }
+    function drag(event: DragEvent) {
+      if (
+        event.dataTransfer?.types.some((type) =>
+          ["text/uri-list", "text/plain"].includes(type),
+        )
+      )
+        event.preventDefault();
+    }
+    function drop(event: DragEvent) {
+      event.preventDefault();
+      if (document.querySelector("dialog[open]")) return;
+      review(
+        event.dataTransfer?.getData("text/uri-list") ||
+          event.dataTransfer?.getData("text/plain") ||
+          "",
+      );
+    }
+    window.addEventListener("paste", paste);
+    window.addEventListener("dragover", drag);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("paste", paste);
+      window.removeEventListener("dragover", drag);
+      window.removeEventListener("drop", drop);
+    };
   }, []);
   useEffect(() => {
     if (form) {
@@ -215,6 +271,7 @@ function App() {
   }, [jobs]);
   useEffect(() => {
     setPolicyDraft(selected?.policy ?? null);
+    setRenewedUrl("");
   }, [selected?.id]);
 
   const active = jobs.filter((j) => activeStates.has(j.state));
@@ -380,7 +437,10 @@ function App() {
               <button
                 className="secondary"
                 disabled={!native}
-                onClick={() => setShowImport(true)}
+                onClick={() => {
+                  setImportText("");
+                  setShowImport(true);
+                }}
               >
                 Import links
               </button>
@@ -431,6 +491,42 @@ function App() {
                   : "No account required. Your download history stays on this PC."}
               </small>
               {native && <Updates formatError={friendly} />}
+              {native && (
+                <>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={notifyCompleted}
+                      onChange={async (event) => {
+                        try {
+                          const settings = await invoke<{ notify: boolean }>(
+                            "completion_settings",
+                            { enabled: event.target.checked },
+                          );
+                          setNotifyCompleted(settings.notify);
+                        } catch (error) {
+                          setError(friendly(error));
+                        }
+                      }}
+                    />{" "}
+                    Notify me when downloads finish (while IDMXL is open)
+                  </label>
+                  <p className="form-note">
+                    Paste links here with Ctrl+V, or drop links onto this
+                    window, to review them before adding.
+                  </p>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      void invoke("quit_interface").catch((error) =>
+                        setError(friendly(error)),
+                      )
+                    }
+                  >
+                    Exit interface — keep downloads running
+                  </button>
+                </>
+              )}
             </section>
           )}
           <section className="stats" aria-label="Download summary">
@@ -781,7 +877,7 @@ function App() {
                     />
                   </label>
                   <label>
-                    Connections
+                    Maximum connections (1–4)
                     <input
                       type="number"
                       min="1"
@@ -791,6 +887,39 @@ function App() {
                         setPolicyDraft({
                           ...policyDraft,
                           connections: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={policyDraft.adaptive}
+                      onChange={(event) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          adaptive: event.target.checked,
+                        })
+                      }
+                    />
+                    Automatically tune connections
+                  </label>
+                  <p className="form-note">
+                    Automatic tuning uses up to the selected maximum for
+                    resumable downloads. Speed limits use a fixed connection
+                    count.
+                  </p>
+                  <label>
+                    Retries per block
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      value={policyDraft.retries}
+                      onChange={(event) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          retries: Number(event.target.value),
                         })
                       }
                     />
@@ -847,10 +976,59 @@ function App() {
                 </dd>
                 <dt>SHA-256</dt>
                 <dd>{selected.sha256 || "Available after verification"}</dd>
+                <dt>Transfer requests / failed requests</dt>
+                <dd>
+                  {selected.transfer_requests} / {selected.failed_requests}
+                </dd>
                 <dt>Job</dt>
                 <dd>{selected.id}</dd>
               </dl>
               {selected.mode === "media" && <MediaDetails id={selected.id} />}
+              {selected.mode !== "media" &&
+                ["failed", "paused", "queued"].includes(selected.state) && (
+                  <form
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      setWorking("renew");
+                      try {
+                        await invoke("refresh_source", {
+                          id: selected.id,
+                          url: renewedUrl,
+                        });
+                        setRenewedUrl("");
+                        await refresh();
+                      } catch (error) {
+                        setError(friendly(error));
+                      } finally {
+                        setWorking("");
+                      }
+                    }}
+                  >
+                    <label>
+                      Replace an expired file link
+                      <input
+                        type="url"
+                        required
+                        autoComplete="off"
+                        value={renewedUrl}
+                        onChange={(event) => setRenewedUrl(event.target.value)}
+                        placeholder="Paste the renewed HTTP or HTTPS file link"
+                      />
+                    </label>
+                    <p className="form-note">
+                      Keeping saved bytes requires the expected SHA-256 entered
+                      when adding this job and matching source details. Browser
+                      captures and media need a new download. Pause other
+                      downloads first.
+                    </p>
+                    <button
+                      className="secondary"
+                      disabled={working === "renew"}
+                    >
+                      Check and replace link
+                    </button>
+                  </form>
+                )}
             </section>
           )}
           <footer className="page-footer">
@@ -962,6 +1140,7 @@ function App() {
       </dialog>
       <ImportLinks
         visible={showImport}
+        initialLinks={importText}
         onClose={() => setShowImport(false)}
         onAdded={() => void refresh()}
         formatError={friendly}
@@ -979,6 +1158,14 @@ function App() {
 function friendly(error: unknown): string {
   const code = String(error).replace(/^Error:\s*/, "");
   const messages: Record<string, string> = {
+    source_refresh_unsupported:
+      "This download cannot have its link replaced. Add the renewed link as a new download.",
+    source_identity_unproven:
+      "The renewed link could not prove that it is the same file. Add it as a new download to preserve your existing checkpoints.",
+    retry_exhausted:
+      "The retry allowance was used up. Choose Resume to allow another set of attempts.",
+    notification_unavailable:
+      "Windows notifications are unavailable. Your downloads will still finish normally.",
     update_in_progress:
       "An update is being prepared. Wait for IDMXL to restart.",
     update_requires_idle_app:

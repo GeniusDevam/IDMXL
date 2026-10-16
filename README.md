@@ -2,13 +2,16 @@
 
 A Windows download manager in early development. The first milestone is a real Rust/libcurl file-transfer engine with durable SQLite checkpoints. The adopted design is in [docs/PLAN.md](docs/PLAN.md); completed work and remaining gates are in [PROGRESS.md](PROGRESS.md).
 
+The current everyday-download/media release candidate is described in [EVERYDAY-RELEASE.md](docs/EVERYDAY-RELEASE.md), including supported paths, manual updates and the unresolved real Edge host connection.
+
 ## Current capabilities
 
 - HTTP(S) file downloads, with public file URLs or DPAPI-protected signed URLs on Windows.
 - Single-request mode by default. An explicit `--replayable` option enables probing, strong-validator checks and up to four concurrent byte ranges.
 - Durable 1 MiB extents, pause/resume, process-crash recovery, and verification of saved extents before reuse.
-- Bounded range retries, numeric/HTTP-date Retry-After and persisted origin cooldowns.
-- Experimental CLI `run <id> --connections 4 --adaptive` tunes uncapped conditional ranges within the selected ceiling. Defaults and rate-capped jobs retain fixed admission.
+- Bounded range retries with durable failed-request budgets/counts, numeric/HTTP-date Retry-After and persisted origin cooldowns.
+- New reusable desktop/queue jobs tune uncapped conditional ranges within a saved maximum of four. Existing jobs retain their policy; rate-capped jobs use fixed admission. CLI `--adaptive` remains explicit.
+- Review-before-adding paste/drop link import, safe expired-link replacement, optional completion notifications and an explicit interface exit that keeps downloads running.
 - SHA-256 validation, no-overwrite publication, recovery across rename/database boundaries, and Internet-zone attachment metadata on Windows.
 - Persistent, redacted JSON history, live received/durable bytes, speed and ETA.
 - Automatic named queues, priorities, one-time UTC schedules/deadlines, recurring local-time weekday/overnight queue hours, checkpoint-based rotation, and per-job/global queue rate ceilings. One job runs at a time.

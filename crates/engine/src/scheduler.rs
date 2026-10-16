@@ -84,7 +84,7 @@ pub fn drain(engine: &Engine, watch: bool, stop: Arc<AtomicBool>) -> Result<()> 
                 connections: policy.connections as usize,
                 retries: policy.retries as u32,
                 speed_limit_bytes: speed,
-                adaptive: false,
+                adaptive: policy.adaptive,
                 stop: job_stop,
             },
         );

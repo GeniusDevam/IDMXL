@@ -107,6 +107,9 @@ impl Engine {
             .open(self.store.directory.join("engine.lock"))?;
         fs2::FileExt::try_lock_exclusive(&lock).context("engine_busy")?;
         self.store.recover_active()?;
+        if self.store.get(id)?.state == "failed" {
+            self.store.reset_retry_budget(id)?;
+        }
         self.run_locked(id, options)
     }
 
@@ -397,6 +400,13 @@ impl Engine {
                     cursor += task.length;
                     task
                 };
+                self.store.start_request(
+                    &job.id,
+                    job.generation,
+                    task.offset,
+                    task.length.try_into()?,
+                    options.retries,
+                )?;
                 let mode = Mode::Range {
                     offset: task.offset,
                     length: task.length,
@@ -482,8 +492,15 @@ impl Engine {
                             && result.as_ref().err().is_some_and(|e| {
                                 matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
                             }));
-                    if retryable && task.attempt < options.retries {
-                        task.attempt += 1;
+                    if error != "transfer_interrupted" {
+                        task.attempt = self.store.failed_request(
+                            &job.id,
+                            job.generation,
+                            task.offset,
+                            task.length.try_into()?,
+                        )?;
+                    }
+                    if retryable && task.attempt <= options.retries {
                         let Some(delay) = retry_delay(
                             receiver
                                 .headers
@@ -543,6 +560,8 @@ impl Engine {
     ) -> Result<()> {
         let mut resolved = url.to_owned();
         for _ in 0..=5 {
+            self.store
+                .start_request(&job.id, job.generation, 0, -1, u32::MAX)?;
             let easy = transport::handle(
                 &resolved,
                 Mode::Sequential,
@@ -582,6 +601,9 @@ impl Engine {
             let easy = multi.remove2(handle)?;
             let receiver = easy.get_ref();
             if let Some(error) = receiver.error {
+                if error != "transfer_interrupted" {
+                    self.store.failed_request(&job.id, job.generation, 0, -1)?;
+                }
                 if error == "server_throttled"
                     && let Some(delay) = receiver
                         .headers
@@ -611,7 +633,10 @@ impl Engine {
                 resolved = next.to_string();
                 continue;
             }
-            result.map_err(|error| anyhow::anyhow!(transport::transport_error(&error)))?;
+            if let Err(error) = result {
+                self.store.failed_request(&job.id, job.generation, 0, -1)?;
+                bail!("{}", transport::transport_error(&error));
+            }
             if status != 200
                 || receiver
                     .headers

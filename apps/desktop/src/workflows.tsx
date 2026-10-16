@@ -19,11 +19,13 @@ function readableFolders(folders: Folders): Folders {
 
 export function ImportLinks({
   visible,
+  initialLinks,
   onClose,
   onAdded,
   formatError,
 }: {
   visible: boolean;
+  initialLinks?: string;
   onClose: () => void;
   onAdded: () => void;
   formatError: ErrorFormatter;
@@ -47,6 +49,10 @@ export function ImportLinks({
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+
+  useEffect(() => {
+    if (visible && initialLinks) setLinks(initialLinks);
+  }, [visible, initialLinks]);
 
   useEffect(() => {
     if (!visible) {

@@ -43,6 +43,8 @@ try {
     }
     npm.cmd --prefix apps/desktop run build
     if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+    node --test tests/links.test.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Link import tests failed.' }
 } finally {
     Remove-Item Env:IDMXL_FAULT_EXE -ErrorAction SilentlyContinue
     Remove-Item Env:IDMXL_PROTOCOL_TESTS -ErrorAction SilentlyContinue

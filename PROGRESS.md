@@ -35,7 +35,7 @@ Current checkpoint: [Milestone 5](#milestone-5-browser-media-and-updater-product
 - [ ] Disk-full, permissions, reparse races and removable/network filesystem qualification.
 - [x] Numeric/HTTP-date Retry-After and persistent origin cooldowns across restarts and other queued jobs.
 - [x] Opt-in adaptive admission controller, bounded 1..4, multi-sample decisions/backoff and controlled benchmark with verified bytes.
-- [ ] Durable retry-attempt accounting, default/UI adaptive integration and broad acceleration benchmarks.
+- [x] Durable failed-request accounting and default/UI adaptive integration (Milestone 6); broader acceleration benchmarks remain qualification work.
 - [x] Automatic named queues, priority, one-time schedules/deadlines, checkpoint-based rotation and per-job/global queue speed caps.
 - [x] Recurring weekday/overnight queue admission hours in computer-local time, with persisted settings and safe handling of active transfers.
 - [ ] Wake scheduling, full DST/timezone-change qualification, strict quotas, dynamic/global multi-job budgets and metered-network policy.
@@ -119,3 +119,17 @@ Run scripts/test.ps1 -Faults -Protocols -Media before recovery changes. The cont
 Next qualification is real Edge native-host discovery, then explicit/capture/media handoff and native media/update UI. Interface automation stopped because the browser URL could not be verified confidently. The previous tray-menu check was deliberately skipped. Full IDM parity and the remaining feature-matrix gates are not complete.
 
 Interface automation is limited to targeted checks; background builds and tests do not require desktop input. The automation session was closed after testing.
+
+
+## Milestone 6: everyday download controls
+
+The user selected everyday downloads and media as the first release scope. Extended FTP/crawler/synchronization work remains deferred. The supported user flows and explicit limits are in docs/EVERYDAY-RELEASE.md.
+
+- [x] New reusable desktop/queue jobs default to saved automatic connection tuning, up to four; explicit fixed admission and existing job policies are preserved.
+- [x] Failed-request budgets and lifetime transfer-body counters persist across process loss. Explicit failed-job retry resets only the budget, under the transfer lock.
+- [x] Review-before-adding paste/drop import, bounded and credential/protocol filtered, with no clipboard polling.
+- [x] Renewed links preserve bytes only with an original expected SHA-256, matching origin/path, exact length and strong ranged validator; unproven sources leave checkpoints/source intact.
+- [x] Durable unique completion events, optional fixed-text Windows notifications and explicit interface exit that keeps workers running.
+- [x] Schema v6 with an idle v5 snapshot; updater snapshot/restore accepts the new schema.
+
+Real Edge connection was retried in its installed extension page: the browser still reports native host not found. The same user owns the browser and registration, paths/configuration exist and direct framed protocol tests pass. No browser security setting was changed. Computer control was released immediately afterward. This is a known unresolved Core browser qualification issue; the product is not represented as full IDM parity or ready for public distribution.

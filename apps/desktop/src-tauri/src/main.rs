@@ -107,6 +107,9 @@ async fn start_job(id: String) -> Result<(), String> {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if job.policy.adaptive {
+            command.arg("--adaptive");
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -435,9 +438,73 @@ async fn media_details(id: String) -> Result<Option<serde_json::Value>, String> 
     .map_err(|_| "operation_failed".to_owned())?
 }
 
+#[tauri::command]
+async fn refresh_source(id: String, url: String) -> Result<JobView, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open()?.refresh_source(&id, &url).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+#[tauri::command]
+fn quit_interface(app: tauri::AppHandle) {
+    app.exit(0);
+}
+#[tauri::command]
+fn completion_settings(enabled: Option<bool>) -> Result<serde_json::Value, String> {
+    let store = open()?;
+    if let Some(value) = enabled {
+        store
+            .set_completion_notifications(value)
+            .map_err(|_| "operation_failed")?;
+    }
+    Ok(
+        serde_json::json!({"notify":store.completion_notifications().map_err(|_|"operation_failed")?}),
+    )
+}
+fn watch_completions(app: tauri::AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
+    std::thread::spawn(move || {
+        let path = directory();
+        let Ok(lock) = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path.join("completion.lock"))
+        else {
+            return;
+        };
+        if fs2::FileExt::try_lock_exclusive(&lock).is_err() {
+            return;
+        }
+        loop {
+            if let Ok(store) = open()
+                && let Ok(jobs) = store.pending_completions()
+            {
+                let notify = store.completion_notifications().unwrap_or(false);
+                for job in jobs {
+                    if notify {
+                        // Fixed text keeps download names and source secrets out of lock-screen notifications.
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("Download complete")
+                            .body("Your file is ready in IDMXL.")
+                            .show();
+                    }
+                    let _ = store.acknowledge_completion(&job.id);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             use tauri::{
                 menu::{Menu, MenuItem},
@@ -476,6 +543,8 @@ fn main() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            let _ = open();
+            watch_completions(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -504,7 +573,10 @@ fn main() {
             add_media,
             media_details,
             check_updates,
-            install_update
+            install_update,
+            refresh_source,
+            completion_settings,
+            quit_interface
         ])
         .run(tauri::generate_context!())
         .expect("IDMXL desktop runtime failed");
