@@ -6,7 +6,10 @@
     "python_optional_large_file_skipped": 1,
     "node_passed": 2,
     "total_passed_this_run": 63,
-    "python_seconds": 94.605
+    "python_seconds": 64.655,
+    "initial_python_seconds": 94.605,
+    "corrected_window_fixture_stress_runs": 10,
+    "corrected_window_fixture_stress_seconds": 21.051
   },
   "native": {
     "imported": 2,
@@ -73,5 +76,16 @@
     "launcher_engine_pair_verified": true,
     "sbom_sha256": "e0bead201133a3d968db283636c271ed34b869d7c6ea5e587e40347c3a5b8a36",
     "sbom_schema_errors": 0
+  },
+  "ci": {
+    "application_commit": "8bdda2ffb7f274397a4c177489f79da471ccec06",
+    "validation_commit": "64c2b906ae17b240213060d284cc3837e43fa373",
+    "first_run": "https://github.com/GeniusDevam/IDMXL/actions/runs/38856162109",
+    "first_result": "failed timing-sensitive test; corrected by gating unfinished fixture ranges",
+    "corrected_run": "https://github.com/GeniusDevam/IDMXL/actions/runs/38857665150",
+    "corrected_status": "completed",
+    "engine_protocol_frontend_stage": "success",
+    "corrected_result": "success",
+    "native_desktop_stage": "success"
   }
 }
