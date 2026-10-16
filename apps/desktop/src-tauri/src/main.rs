@@ -98,6 +98,12 @@ async fn start_job(id: String) -> Result<(), String> {
             .arg(directory())
             .arg("run")
             .arg(id)
+            .arg("--connections")
+            .arg(job.policy.connections.to_string())
+            .arg("--retries")
+            .arg(job.policy.retries.to_string())
+            .arg("--speed-limit")
+            .arg(job.policy.speed_limit.to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -153,6 +159,68 @@ fn engine_binary() -> Result<PathBuf, String> {
         return Err("engine_binary_missing".into());
     }
     Ok(executable)
+}
+
+#[tauri::command]
+async fn workflow_settings() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let store = open()?;
+        Ok(
+            serde_json::json!({"folders":store.folder_settings().map_err(|_|"operation_failed")?,
+            "default_rules":idmxl_engine::workflows::default_folder_rules()}),
+        )
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+
+#[tauri::command]
+async fn save_folder_settings(
+    settings: idmxl_engine::FolderSettings,
+) -> Result<idmxl_engine::FolderSettings, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open()?
+            .set_folder_settings(&settings)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+
+#[tauri::command]
+async fn add_links(batch: idmxl_engine::LinkBatch) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(serde_json::json!({"results":open()?.add_links(batch).map_err(|e|e.to_string())?}))
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+
+#[tauri::command]
+async fn get_queue_window(queue_name: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = open()?;
+        Ok(
+            serde_json::json!({"window":store.queue_window(&queue_name).map_err(|e|e.to_string())?,
+            "open_now":store.queue_open(&queue_name).map_err(|e|e.to_string())?}),
+        )
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+
+#[tauri::command]
+async fn save_queue_window(
+    queue_name: String,
+    window: Option<idmxl_engine::QueueWindow>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open()?
+            .set_queue_window(&queue_name, window.as_ref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
 }
 
 #[tauri::command]
@@ -305,7 +373,12 @@ fn main() {
             queue_control,
             queue_status,
             reveal_job,
-            capabilities
+            capabilities,
+            workflow_settings,
+            save_folder_settings,
+            add_links,
+            get_queue_window,
+            save_queue_window
         ])
         .run(tauri::generate_context!())
         .expect("IDMXL desktop runtime failed");

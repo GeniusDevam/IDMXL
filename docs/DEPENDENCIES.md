@@ -24,3 +24,7 @@ The queue/protocol milestone adds httpdate 1.0.3 (MIT/Apache-2.0), tray-icon 0.2
 
 The controlled FFmpeg helper experiment has its own exact-source/compiler/configuration record in MEDIA-BUILD.md. It is not bundled in the Core installer. No Python interpreter, extractor runtime or downloaded media helper is shipped by this milestone.
 
+The workflow milestone adds direct use of chrono 0.4.45 (MIT/Apache-2.0, clock/std features) for the computer's local recurrence clock and percent-encoding 2.3.2 (MIT/Apache-2.0) for safe URL-path filename decoding. Both were already represented in the broader desktop dependency inventory. The refreshed inventory still contains 353 components, 516 collected notices and 44 missing-root review entries. Official CycloneDX 1.6 schema validation passed with zero errors; this remains a development inventory rather than licence clearance.
+
+Primary API references: [Chrono Local](https://docs.rs/chrono/0.4.45/chrono/offset/struct.Local.html), [Datelike](https://docs.rs/chrono/0.4.45/chrono/trait.Datelike.html), [percent decoding](https://docs.rs/percent-encoding/2.3.2/percent_encoding/fn.percent_decode_str.html).
+

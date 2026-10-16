@@ -35,7 +35,8 @@ Updated 16 October 2026. This file is the continuation record; checked items des
 - [x] Opt-in adaptive admission controller, bounded 1..4, multi-sample decisions/backoff and controlled benchmark with verified bytes.
 - [ ] Durable retry-attempt accounting, default/UI adaptive integration and broad acceleration benchmarks.
 - [x] Automatic named queues, priority, one-time schedules/deadlines, checkpoint-based rotation and per-job/global queue speed caps.
-- [ ] Recurring schedules, strict quotas, dynamic/global multi-job budgets and metered-network policy.
+- [x] Recurring weekday/overnight queue admission hours in computer-local time, with persisted settings and safe handling of active transfers.
+- [ ] Wake scheduling, full DST/timezone-change qualification, strict quotas, dynamic/global multi-job budgets and metered-network policy.
 
 ## Milestone 2: initial native desktop preview
 
@@ -66,9 +67,24 @@ The media experiment proves only the recorded generated MOV/RGB + WAV/PCM path. 
 
 The opt-in adaptive CLI controller starts at one admission, averages two one-second samples, probes one extra slot only within the configured maximum, rejects non-improving trials, backs off on sustained regressions and holds at one after throttling/retry trouble. Capped/default/desktop queues retain fixed admission. A generated 16 MiB localhost fixture with an artificial 512 KiB/s per-request bottleneck completed in 34.299 s fixed-one versus 14.331 s adaptive-max-four, peaking at four outstanding body requests. This is one declared scenario, not a browser comparison or general acceleration guarantee. Exact machine/limits/results are in `docs/evidence/adaptive-benchmark.json`.
 
+## Milestone 4: everyday download workflows
+
+- [x] Desktop Import links: up to 1,000 direct file links, within-list deduplication, per-entry results and correction of rejected lines without resubmitting accepted ones.
+- [x] Saved folder preferences and editable extension rules; categorized subfolders, sanitized filenames and numbered collision handling. Existing files remain intact.
+- [x] Atomic filename reservation against queued history, including concurrent imports. Explicit destinations also reject existing reservations.
+- [x] Recurring local weekday/overnight queue hours, persisted per named queue. Blocked queues do not prevent other eligible queues from running.
+- [x] A window ending stops segmented transfers after a new durable checkpoint; single-stream/one-use transfers finish their current request. Individual Start/Resume runs immediately.
+- [x] Schema v4, pre-v3-upgrade backup, and migration guard requiring both engine and queue-worker locks to be idle.
+- [x] Native import smoke: two generated files categorized into Documents/Archives, one duplicate skipped, recurring settings reopened, jobs stayed untouched outside hours and completed after the restriction was removed. Independent hashes and ZoneId=3 match; prior generated files remain unchanged.
+- [x] Nineteen Rust checks, forty-two ordinary Python methods and two extension checks passed (63 this run). The earlier separate 4 GiB-plus case remains recorded, not rerun here.
+- [x] Native Clippy, TypeScript/Vite and release/NSIS build passed. Bundle builds now refresh the checkout launcher's engine companion as well as the packaged sidecar.
+- [x] Refreshed 353-component inventory, 516 collected notices and 44 review entries; official CycloneDX 1.6 schema validation reports zero errors.
+
+The native folder picker opened and cancelled, but its editable child control was unavailable in the automation cache. Entering the folder directly in the app completed the functional import test. Full picker-selection, accessibility, clean-machine and timezone-transition matrices remain separate checks. The temporary folder preference was restored after QA; generated history/files were retained. See `docs/WORKFLOWS.md` and `docs/evidence/workflows.json`.
+
 ## Later release gates
 
-G2: recurring schedules, category rules, remaining desktop workflows, keyboard/screen-reader checks and real-browser qualification.
+G2: remaining desktop workflows, default/UI adaptive integration, durable retry accounting, keyboard/screen-reader checks and real-browser qualification. Recurring queue hours and import folder rules now have the scoped evidence above.
 
 G3: per-user installer, clean-machine tests, signed updates, migration/rollback, SBOM/notices and performance evidence.
 
@@ -78,9 +94,9 @@ G5: add selected extended workflows from the full plan, with independent tests a
 
 ## Continuation instructions
 
-The 16 October retry recovered the minimized installed window successfully. Native pause/requeue and background completion passed. The isolated `.local/installation-smoke` installation was then uninstalled successfully, after backing up its QA history and stopping its test processes; both generated downloads and the global profile remain intact. The tray menu is not exposed as a target by the UI automation helper, and the user chose to continue without that click-through. Dark-mode contrast defects found during visual QA were corrected. The source launcher prefers the release checkout build. Exported unsigned installer, inventory, notice archive and build manifest are in the sibling `outputs/IDMXL-Preview` folder.
+The current release preview includes recurring queue hours, desktop link import and editable folder rules, with 63 passing automated checks plus the scoped native evidence in Milestone 4. The global QA profile is now schema v4 with four completed generated files; its pre-upgrade v3 snapshot preserves the two earlier jobs. Keep that profile, its snapshots and all generated files intact. QA folder preferences were restored and its queue was stopped. The isolated `.local/installation-smoke` installation had already been uninstalled with preservation verified in the previous milestone.
 
-The rebuilt release was visually checked, retained both completed jobs and passed search, Ctrl+N/Escape and folder-reveal checks. System theme was restored. The final installer rebuilt successfully after stopping the running QA executable, and its exported checksum matches. The latest CSS checkpoint's fresh CI run `38825092235` was queued when saved; do not label that run green without checking it. The earlier code checkpoint's green CI and 55 automated cases remain recorded separately.
+The source launcher prefers the release checkout build, now paired with the freshly built engine even after a bundle build. The new release was checked in the native UI; final displayed paths omit the Windows extended-path prefix. Exported unsigned installer, inventory, notices, workflow guide and evidence are in `outputs/IDMXL-Preview`. The prior CSS checkpoint's CI run `38825092235` was subsequently verified successful. A later workflow-code CI run must be checked separately. Tray-menu click-through remains skipped at the user's request; the folder picker's child-control cache limitation is recorded in TEST-EVIDENCE.md.
 
-Read `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/TEST-EVIDENCE.md` and `docs/RELEASE-CHECKLIST.md`. Run `scripts/test.ps1 -Faults -Protocols` before changing recovery behavior. Keep secret URLs on stdin and preserve redacted JSON. Next priorities are completing the installed/native and real Edge checks, clean-machine install/upgrade/uninstall, signed update recovery, adaptive tuning and the remaining Core workflows. Do not claim the Core/Media/Extended releases complete while their unchecked work remains.
+Read `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/WORKFLOWS.md`, `docs/TEST-EVIDENCE.md` and `docs/RELEASE-CHECKLIST.md`. Run `scripts/test.ps1 -Faults -Protocols` before changing recovery behavior. Keep secret URLs on stdin and preserve redacted JSON. Next priorities are real Edge qualification, default/UI adaptive integration, durable retry accounting, clean-machine upgrade/update recovery and remaining Core workflows, followed by the scoped Media release. Do not claim Core/Media/Extended complete while their unchecked work remains.
 

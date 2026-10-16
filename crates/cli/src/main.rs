@@ -71,6 +71,19 @@ enum Command {
     Doctor,
     /// Queue up to 1,000 explicit file jobs from a JSON array on stdin. Never starts them.
     Batch,
+    /// Add a plain link list with automatic filenames and optional category folders from JSON stdin.
+    AddLinks,
+    /// Get a queue's recurring local-time hours; --set reads a window or null from stdin.
+    QueueWindow {
+        queue: String,
+        #[arg(long)]
+        set: bool,
+    },
+    /// Get saved download-folder rules; --set reads folder settings from JSON stdin.
+    Folders {
+        #[arg(long)]
+        set: bool,
+    },
     /// Persist a job's queue, priority, UTC schedule and transfer options from JSON stdin.
     Policy { id: String },
     /// Run eligible jobs in priority/FIFO order. --watch waits for future schedules.
@@ -151,6 +164,24 @@ fn run() -> Result<()> {
         Command::Pause { id } => serde_json::to_value(store.request(&id, "paused")?)?,
         Command::Cancel { id } => serde_json::to_value(store.request(&id, "canceled")?)?,
         Command::Doctor => unreachable!(),
+        Command::QueueWindow { queue, set } => {
+            if set {
+                let window: Option<idmxl_engine::QueueWindow> = read_json(16384)?;
+                store.set_queue_window(&queue, window.as_ref())?;
+            }
+            serde_json::json!({"window":store.queue_window(&queue)?,"open_now":store.queue_open(&queue)?})
+        }
+        Command::Folders { set } => {
+            if set {
+                let settings: idmxl_engine::FolderSettings = read_json(65536)?;
+                store.set_folder_settings(&settings)?;
+            }
+            serde_json::json!({"folders":store.folder_settings()?,"default_rules":idmxl_engine::workflows::default_folder_rules()})
+        }
+        Command::AddLinks => {
+            let batch: idmxl_engine::LinkBatch = read_json(1048576)?;
+            serde_json::json!({"results":store.add_links(batch)?})
+        }
         Command::Policy { id } => {
             let mut text = String::new();
             std::io::stdin().take(16385).read_to_string(&mut text)?;
@@ -203,6 +234,15 @@ fn run() -> Result<()> {
     };
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(limit: u64) -> Result<T> {
+    let mut text = String::new();
+    std::io::stdin().take(limit + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > limit {
+        bail!("input_too_large");
+    }
+    serde_json::from_str(&text).context("invalid_input")
 }
 
 fn main() {

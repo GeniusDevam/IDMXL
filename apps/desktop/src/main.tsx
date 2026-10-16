@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import "./styles.css";
+import { ImportLinks, QueueHours } from "./workflows";
+import { displayPath } from "./paths";
 
 type Job = {
   id: string;
@@ -23,6 +25,7 @@ type Job = {
   sha256: string | null;
   error: string | null;
   file_available: boolean;
+  queue_window_open: boolean;
 };
 type Policy = {queue_name:string;priority:number;not_before:number;deadline:number|null;connections:number;retries:number;speed_limit:number};
 type Filter = "all" | "active" | "completed";
@@ -127,6 +130,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [form, setForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [url, setUrl] = useState("");
   const [destination, setDestination] = useState("");
   const [digest, setDigest] = useState("");
@@ -180,7 +184,7 @@ function App() {
   },[theme]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key.toLowerCase() === "n") { event.preventDefault(); if (native) setForm(true); }
+      if (event.ctrlKey && event.key.toLowerCase() === "n") { event.preventDefault(); if (native && !document.querySelector("dialog[open]")) setForm(true); }
     };
     window.addEventListener("keydown",key); return () => window.removeEventListener("keydown",key);
   },[]);
@@ -330,14 +334,10 @@ function App() {
               <h1>Your downloads.</h1>
               <p>Pick up where you left off.</p>
             </div>
-            <button
-              className="primary"
-              disabled={!native}
-              onClick={() => setForm(true)}
-            >
-              <Icon name="plus" />
-              New download
-            </button>
+            <div className="heading-actions">
+              <button className="secondary" disabled={!native} onClick={() => setShowImport(true)}>Import links</button>
+              <button className="primary" disabled={!native} onClick={() => setForm(true)}><Icon name="plus" />New download</button>
+            </div>
           </section>
           {!native && (
             <div className="notice">
@@ -482,7 +482,8 @@ function App() {
                         <span className={`job-state ${job.state}`}>
                           {job.state === "completed" && !job.file_available
                             ? "File unavailable"
-                            : job.state.replaceAll("_", " ")}
+                            : job.state === "queued" && !job.queue_window_open
+                              ? "Waiting for queue hours" : job.state.replaceAll("_", " ")}
                         </span>
                       </div>
                       {job.error && (
@@ -597,6 +598,7 @@ function App() {
                 <p>{bytes(selected.durable_bytes)} saved in verified checkpoints. Scheduled jobs run while the queue worker is running; missed start times run when next eligible.</p>
                 <button className="secondary" type="submit">Save schedule</button>
               </form>}
+              <QueueHours queueName={selected.policy.queue_name} formatError={friendly} onSaved={() => void refresh()} />
               <div>
                 <h2>Download details</h2>
                 <button
@@ -609,7 +611,7 @@ function App() {
               </div>
               <dl>
                 <dt>Saved to</dt>
-                <dd>{selected.destination}</dd>
+                <dd>{displayPath(selected.destination)}</dd>
                 <dt>Transfer</dt>
                 <dd>
                   {selected.mode === "ranged"
@@ -730,6 +732,7 @@ function App() {
           </div>
         </form>
       </dialog>
+      <ImportLinks visible={showImport} onClose={() => setShowImport(false)} onAdded={() => void refresh()} formatError={friendly} />
     </div>
   );
 }
@@ -739,6 +742,16 @@ function friendly(error: unknown): string {
   const messages: Record<string, string> = {
     destination_exists:
       "A file already exists at that location. Choose a different name.",
+    destination_in_use: "Another download already uses that filename. Choose a different name.",
+    invalid_queue_name: "Enter a queue name of up to 64 characters.",
+    invalid_queue_window: "Select at least one weekday and valid start and end times.",
+    invalid_folder_settings: "Choose an existing download folder and up to 20 folder rules.",
+    invalid_folder_rule: "Use unique folder names and file extensions. Folder names cannot contain paths or reserved Windows names.",
+    category_folder_unavailable: "A category folder could not be used. Choose another folder or turn off organization.",
+    invalid_batch_size: "Enter between 1 and 1,000 links, up to 1 MB in total.",
+    download_could_not_be_added: "This download could not be added. Check the folder and link.",
+    no_available_filename: "No free filename could be chosen. Use another folder.",
+    url_too_large: "This file link is too long.",
     destination_folder_missing:
       "That folder does not exist. Choose an existing folder.",
     invalid_filename:

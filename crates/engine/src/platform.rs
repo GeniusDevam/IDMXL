@@ -29,6 +29,29 @@ pub fn display_url(url: &Url) -> String {
     redacted.to_string()
 }
 
+pub(crate) fn validate_filename(name: &str) -> Result<()> {
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    if name.is_empty()
+        || name.ends_with(['.', ' '])
+        || name.contains(['/', '\\', ':', '<', '>', '"', '|', '?', '*'])
+        || name.chars().any(|c| c.is_control())
+        || name.encode_utf16().count() > 255
+        || reserved
+    {
+        bail!("invalid_filename");
+    }
+    Ok(())
+}
+
 pub fn destination(path: &Path) -> Result<std::path::PathBuf> {
     let absolute = if path.is_absolute() {
         path.to_owned()
@@ -39,19 +62,7 @@ pub fn destination(path: &Path) -> Result<std::path::PathBuf> {
         .file_name()
         .and_then(|x| x.to_str())
         .context("invalid_filename")?;
-    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (stem.len() == 4
-            && (stem.starts_with("COM") || stem.starts_with("LPT"))
-            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
-    if name.is_empty()
-        || name.ends_with(['.', ' '])
-        || name.contains([':', '<', '>', '"', '|', '?', '*'])
-        || name.chars().any(|c| c.is_control())
-        || reserved
-    {
-        bail!("invalid_filename");
-    }
+    validate_filename(name)?;
     let parent = absolute
         .parent()
         .context("invalid_destination")?

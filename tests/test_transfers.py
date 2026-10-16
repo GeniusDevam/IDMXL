@@ -469,6 +469,130 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(self.command("list")[0]["state"],"queued")
         self.command("batch",input="[]",success=False)
 
+    def test_link_import_categories_collisions_dedup_and_integrity(self):
+        root=self.directory / "downloads"; root.mkdir()
+        documents=root / "Documents"; documents.mkdir()
+        existing=documents / "report one.PDF"; existing.write_bytes(b"preserve original")
+        folders={"directory":str(root),"organize":True,"rules":[{"folder":"Documents","extensions":[".PDF"]},{"folder":"Archives","extensions":["zip"]}]}
+        self.command("folders","--set",input=json.dumps(folders))
+        persisted=self.command("folders")["folders"]
+        self.assertEqual(persisted["rules"][0]["extensions"],["pdf"])
+        first=self.base+"/report%20one.PDF?token=private-one"
+        batch={"links":[first,first+"#duplicate",self.base+"/report%20one.PDF?token=private-two",self.base+"/CON.zip",self.base+"/folder%2Fescape.bin","file:///C:/private"],"folders":folders,"replayable":True,"queue_name":"Imported"}
+        result=self.command("add-links",input=json.dumps(batch))["results"]
+        self.assertEqual([r["status"] for r in result],["queued","duplicate","queued","queued","queued","rejected"])
+        self.assertNotIn("private-one",json.dumps(result)); self.assertNotIn("private-two",json.dumps(result))
+        jobs=[r["job"] for r in result if r["status"]=="queued"]
+        self.assertEqual([j["name"] for j in jobs],["report one (2).PDF","report one (3).PDF","_CON.zip","folder_escape.bin"])
+        self.assertEqual([Path(j["destination"]).parent.name for j in jobs],["Documents","Documents","Archives","Other"])
+        self.assertTrue(all(j["state"]=="queued" and j["policy"]["queue_name"]=="Imported" for j in jobs))
+        self.command("add",self.base+"/file","--output",jobs[0]["destination"],success=False)
+        self.command("queue-run")
+        for job in jobs:
+            final=self.command("show",job["id"])
+            self.assertEqual(final["state"],"completed")
+            self.assertEqual(hashlib.sha256(Path(final["destination"]).read_bytes()).hexdigest(),DIGEST)
+        self.assertEqual(existing.read_bytes(),b"preserve original")
+
+    def test_folder_rules_reject_traversal_ambiguity_and_invalid_settings(self):
+        root=self.directory / "downloads"; root.mkdir()
+        for rules in [
+            [{"folder":"../outside","extensions":["zip"]}],
+            [{"folder":"NUL","extensions":["zip"]}],
+            [{"folder":"A","extensions":["PDF"]},{"folder":"B","extensions":[".pdf"]}],
+            [{"folder":"A","extensions":["zip"]},{"folder":"a","extensions":["rar"]}],
+            [{"folder":"A","extensions":["..exe"]}],
+        ]:
+            settings={"directory":str(root),"organize":True,"rules":rules}
+            self.command("folders","--set",input=json.dumps(settings),success=False)
+        self.assertEqual(list(root.iterdir()),[])
+        settings={"directory":str(root),"organize":False,"rules":[]}
+        self.command("folders","--set",input=json.dumps(settings))
+        self.assertFalse(self.command("folders")["folders"]["organize"])
+        self.command("add-links",input=json.dumps({"links":[self.base+"/file"]*1001,"folders":settings}),success=False)
+
+    def test_concurrent_link_import_reserves_distinct_filenames(self):
+        root=self.directory / "downloads"; root.mkdir()
+        batch=json.dumps({"links":[self.base+"/file.zip"],"folders":{"directory":str(root),"organize":False,"rules":[]}})
+        processes=[subprocess.Popen([str(EXE),"--state-dir",str(self.state),"add-links"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) for _ in range(2)]
+        self.processes.extend(processes)
+        for process in processes:
+            process.stdin.write(batch); process.stdin.close(); process.stdin=None
+        names=[]
+        for process in processes:
+            stdout,stderr=process.communicate(timeout=15)
+            self.assertEqual(process.returncode,0,stderr)
+            names.append(json.loads(stdout)["results"][0]["job"]["name"])
+        self.assertEqual(set(names),{"file.zip","file (2).zip"})
+        self.command("queue-run")
+        for name in names: self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(),DIGEST)
+
+    def test_recurring_queue_window_does_not_starve_other_queues(self):
+        blocked=self.add(name="night.bin"); allowed=self.add(name="day.bin")
+        self.command("policy",blocked["id"],input=json.dumps({"queue_name":"Night","priority":100}))
+        other_day=1 << ((time.localtime().tm_wday+3)%7)
+        window={"days":other_day,"start_minute":0,"end_minute":0}
+        self.command("queue-window","Night","--set",input=json.dumps(window))
+        self.assertFalse(self.command("queue-window","Night")["open_now"])
+        self.command("queue-run")
+        self.assertEqual(self.command("show",blocked["id"])["state"],"queued")
+        self.assertFalse(self.command("show",blocked["id"])["queue_window_open"])
+        self.assertEqual(self.command("show",allowed["id"])["state"],"completed")
+        self.command("queue-window","Night","--set",input="null")
+        self.command("queue-run")
+        self.assertEqual(self.command("show",blocked["id"])["state"],"completed")
+        for bad in [{"days":0,"start_minute":0,"end_minute":0},{"days":127,"start_minute":1440,"end_minute":0},{"days":127,"start_minute":0,"end_minute":0,"unknown":True}]:
+            self.command("queue-window","Night","--set",input=json.dumps(bad),success=False)
+
+    def test_recurring_window_change_checkpoints_and_resumes_active_ranges(self):
+        job=self.add("/slow",name="window-ranges.bin")
+        closed={"days":1 << ((time.localtime().tm_wday+3)%7),"start_minute":0,"end_minute":0}
+        self.command("queue-window","Default","--set",input=json.dumps(closed))
+        process=subprocess.Popen([str(EXE),"--state-dir",str(self.state),"queue-run","--watch"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        self.processes.append(process); time.sleep(.3)
+        self.assertEqual(self.command("show",job["id"])["state"],"queued")
+        self.command("queue-window","Default","--set",input="null")
+        self.wait_checkpoint(job,process)
+        self.command("queue-window","Default","--set",input=json.dumps(closed))
+        deadline=time.monotonic()+12
+        while time.monotonic()<deadline:
+            current=self.command("show",job["id"])
+            if current["state"]=="queued" and int(current["durable_bytes"])>0: break
+            time.sleep(.05)
+        else: self.fail("Active ranged job did not checkpoint and wait for recurring hours")
+        self.assertFalse(current["queue_window_open"])
+        self.command("queue-window","Default","--set",input="null")
+        deadline=time.monotonic()+15
+        while time.monotonic()<deadline:
+            if self.command("show",job["id"])["state"]=="completed": break
+            time.sleep(.1)
+        else: self.fail("Ranged job did not resume after recurring hours opened")
+        self.command("queue-pause"); _,stderr=process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        self.assertEqual(hashlib.sha256(Path(job["destination"]).read_bytes()).hexdigest(),DIGEST)
+
+    def test_recurring_window_end_does_not_replay_single_use_transfer(self):
+        job=self.add("/slow",replayable=False,name="window-single.bin")
+        with Fixture.guard: before=Fixture.counters[("/slow","")]
+        process=subprocess.Popen([str(EXE),"--state-dir",str(self.state),"queue-run","--watch"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        self.processes.append(process)
+        deadline=time.monotonic()+10
+        while time.monotonic()<deadline:
+            if int(self.command("show",job["id"])["received_bytes"])>0: break
+            time.sleep(.05)
+        else: self.fail("No live single-stream progress")
+        closed={"days":1 << ((time.localtime().tm_wday+3)%7),"start_minute":0,"end_minute":0}
+        self.command("queue-window","Default","--set",input=json.dumps(closed))
+        deadline=time.monotonic()+15
+        while time.monotonic()<deadline:
+            if self.command("show",job["id"])["state"]=="completed": break
+            time.sleep(.1)
+        else: self.fail("Single-use job did not finish its original request")
+        self.command("queue-pause"); _,stderr=process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        with Fixture.guard: self.assertEqual(Fixture.counters[("/slow","")]-before,1)
+        self.assertEqual(hashlib.sha256(Path(job["destination"]).read_bytes()).hexdigest(),DIGEST)
+
     @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Use the test-only short scheduling quantum")
     def test_named_queues_rotate_after_a_durable_checkpoint(self):
         first=self.add("/slow",name="first-queue.bin")

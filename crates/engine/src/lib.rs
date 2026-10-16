@@ -7,10 +7,12 @@ pub mod platform;
 pub mod scheduler;
 pub mod store;
 pub mod transport;
+pub mod workflows;
 
 pub use engine::{Engine, RunOptions};
 pub use model::{AddJob, JobPolicy, JobView};
 pub use store::Store;
+pub use workflows::{FolderSettings, LinkBatch, QueueWindow};
 
 pub fn capabilities() -> serde_json::Value {
     let version = curl::Version::get();

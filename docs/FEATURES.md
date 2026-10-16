@@ -1,6 +1,6 @@
 # Feature status
 
-Status on 15 October 2026. "Partial" means a useful subset exists; it does not satisfy the full original feature contract. Full release allocation remains in PLAN.md.
+Status on 16 October 2026. "Partial" means a useful subset exists; it does not satisfy the full original feature contract. Full release allocation remains in PLAN.md.
 
 | ID | Capability | Current evidence/status |
 |---|---|---|
@@ -8,14 +8,14 @@ Status on 15 October 2026. "Partial" means a useful subset exists; it does not s
 | F02 | Pause/resume/retry | Partial: verified resume, bounded retries, HTTP-date/numeric Retry-After and persistent origin cooldowns; durable attempt counters pending. |
 | F03 | Recovery | Partial: process-kill and publication tests; full fault/power-loss qualification pending. |
 | F04 | Queues/priorities | Partial: automatic named queues, priorities, checkpoint-based rotation and queue pause/resume; one active job. |
-| F05 | Scheduling | Partial: logged-in worker, one-time UTC starts/deadlines and missed-start eligibility; recurrence/wake policies pending. |
+| F05 | Scheduling | Partial: one-time UTC starts/deadlines plus persisted weekday/overnight local queue windows, safe range checkpointing and single-stream finish behavior; wake and full DST/timezone-change qualification pending. |
 | F06 | Limits | Partial: per-job and global queue speed ceilings at admission; strict quotas and metered policies pending. |
-| F07 | Categories/folders | Partial: explicit destination and no-overwrite behavior; rules pending. |
+| F07 | Categories/folders | Partial: editable extension-to-subfolder rules in desktop link import, safe generated names, collision reservation and no-overwrite publication; rules do not move existing files or override explicit destinations. |
 | F08 | Browser handoff | Partial: original MV3 explicit-link extension, bounded/idempotent native protocol, public DNS/address policy and setup script; real Edge install/click-through pending. |
 | F09 | Browser video button | Pending, Media release. |
 | F10 | Video quality | Pending, Media release. |
 | F11 | Track combination | G0 feasibility passed for generated original 8K MOV/RGB + WAV/PCM stream copy; product media workflow and streaming-codec matrix pending. |
-| F12 | Batches | Partial: bounded JSON file-job import, input deduplication and per-entry results; video batches/playlists pending. |
+| F12 | Batches | Partial: desktop plain-link import and bounded JSON file-job/link batches, deduplication, category folders and per-entry results; page discovery/video batches/playlists pending. |
 | F13 | Page links | Pending, Extended. |
 | F14 | Grabber | Pending, Extended. |
 | F15 | Synchronization | Pending, Extended. |

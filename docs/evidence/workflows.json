@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-16",
+  "automated": {
+    "rust_passed": 19,
+    "python_passed": 42,
+    "python_optional_large_file_skipped": 1,
+    "node_passed": 2,
+    "total_passed_this_run": 63,
+    "python_seconds": 94.605
+  },
+  "native": {
+    "imported": 2,
+    "input_duplicate_skipped": 1,
+    "category_folders": [
+      "Documents",
+      "Archives"
+    ],
+    "recurring_window_saved": {
+      "queue": "Workflow QA",
+      "days": 127,
+      "start_minute": 1320,
+      "end_minute": 360
+    },
+    "outside_hours_wait_verified": true,
+    "completion_after_disabling_hours": true,
+    "recurring_settings_reopened": true,
+    "folder_picker": "opened/cancelled; child controls unavailable in automation cache, path entered in app",
+    "previous_generated_files_unchanged": true,
+    "qa_folder_preferences_restored": true,
+    "final_reopen_history": "four completed jobs retained; queue stopped",
+    "cleaned_display_path": "verified in final native release"
+  },
+  "migration": {
+    "from": 3,
+    "to": 4,
+    "backup_integrity": "ok",
+    "backup_jobs": 2
+  },
+  "generated_jobs": [
+    {
+      "id": "b7f4e75c-8772-48b2-b9d4-7185cc7346f4",
+      "state": "completed",
+      "mode": "sequential",
+      "total": 3145737,
+      "durable": 3145737,
+      "received": 3145737,
+      "actual_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+      "path": ".local/workflow-ui/Documents/report.pdf",
+      "zone_id": 3
+    },
+    {
+      "id": "24de9f73-effa-43c5-8ded-026e3544dd65",
+      "state": "completed",
+      "mode": "sequential",
+      "total": 3145737,
+      "durable": 3145737,
+      "received": 3145737,
+      "actual_sha256": "dae24d431738491859c04ca5fab6b5694883e22083f782456e15a4734bb96281",
+      "path": ".local/workflow-ui/Archives/archive.zip",
+      "zone_id": 3
+    }
+  ],
+  "limits": [
+    "No wake scheduling or completed-file recurrence",
+    "DST/timezone-change matrix pending",
+    "No fresh clean-machine/upgrade/uninstall qualification",
+    "Large-file evidence remains the previously recorded independent run"
+  ],
+  "artifact": {
+    "installer_sha256": "0a4ead68d7c07d1c023edd1f7f047767d64aa169dc2cbd58710dff082cdc4589",
+    "installer_bytes": 3905459,
+    "signature": "NotSigned",
+    "launcher_engine_pair_verified": true,
+    "sbom_sha256": "e0bead201133a3d968db283636c271ed34b869d7c6ea5e587e40347c3a5b8a36",
+    "sbom_schema_errors": 0
+  }
+}

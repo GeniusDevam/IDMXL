@@ -34,20 +34,25 @@ impl Store {
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
         let version: u32 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > 3 {
+        if version > 4 {
             bail!("database_version_unsupported");
         }
-        let idle_lock = if version > 0 && version < 3 {
-            let lock = std::fs::OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .read(true)
-                .write(true)
-                .open(directory.join("engine.lock"))?;
-            fs2::FileExt::try_lock_exclusive(&lock).context("migration_requires_idle_engine")?;
-            Some(lock)
+        let idle_locks = if version > 0 && version < 4 {
+            let mut locks = Vec::new();
+            for name in ["engine.lock", "scheduler.lock"] {
+                let lock = std::fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .read(true)
+                    .write(true)
+                    .open(directory.join(name))?;
+                fs2::FileExt::try_lock_exclusive(&lock)
+                    .context("migration_requires_idle_engine")?;
+                locks.push(lock);
+            }
+            locks
         } else {
-            None
+            Vec::new()
         };
         if version == 0 {
             db.execute_batch(include_str!("../migrations/001_initial.sql"))?;
@@ -91,22 +96,43 @@ impl Store {
             }
             db.execute_batch("COMMIT;")?;
         }
-        drop(idle_lock);
+        if version < 4 {
+            if version == 3 {
+                let backup = directory.join(format!("jobs-v3-{}.sqlite", Uuid::new_v4()));
+                db.execute(
+                    "VACUUM INTO ?1",
+                    [backup.to_str().context("non_unicode_path")?],
+                )?;
+            }
+            db.execute_batch(include_str!("../migrations/004_workflows.sql"))?;
+        }
+        drop(idle_locks);
         Ok(Self { db, directory })
     }
 
     pub fn add(&self, request: AddJob) -> Result<JobView> {
-        self.insert(request, None)
+        self.insert(request, None, false, "Default")
+    }
+
+    pub(crate) fn add_generated(&self, request: AddJob, queue: &str) -> Result<JobView> {
+        self.insert(request, None, true, queue)
     }
 
     pub fn add_handoff(&self, request: AddJob, request_id: &str) -> Result<JobView> {
         if Uuid::parse_str(request_id).is_err() {
             bail!("invalid_request_id");
         }
-        self.insert(request, Some(request_id))
+        self.insert(request, Some(request_id), false, "Default")
     }
 
-    fn insert(&self, request: AddJob, handoff: Option<&str>) -> Result<JobView> {
+    fn insert(
+        &self,
+        request: AddJob,
+        handoff: Option<&str>,
+        unique: bool,
+        queue: &str,
+    ) -> Result<JobView> {
+        let queue = crate::workflows::checked_queue_name(queue)?;
         let url = platform::checked_url(&request.url)?;
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.db,
@@ -130,7 +156,55 @@ impl Store {
                 return self.view(&id);
             }
         }
-        let destination = platform::destination(&request.destination)?;
+        let destination = if unique {
+            let name = request
+                .destination
+                .file_name()
+                .and_then(|s| s.to_str())
+                .context("invalid_filename")?;
+            let directory = request
+                .destination
+                .parent()
+                .context("invalid_destination")?;
+            let (stem, extension) = name
+                .rsplit_once('.')
+                .map_or((name, String::new()), |(stem, extension)| {
+                    (stem, format!(".{extension}"))
+                });
+            let mut available = None;
+            for number in 1..=10_000 {
+                let candidate = directory.join(if number == 1 {
+                    name.to_owned()
+                } else {
+                    format!("{stem} ({number}){extension}")
+                });
+                if candidate.symlink_metadata().is_ok() {
+                    continue;
+                }
+                let candidate = platform::destination(&candidate)?;
+                let used: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM jobs WHERE destination=?1 COLLATE NOCASE)",
+                    [candidate.to_str().context("non_unicode_path")?],
+                    |r| r.get(0),
+                )?;
+                if !used {
+                    available = Some(candidate);
+                    break;
+                }
+            }
+            available.context("no_available_filename")?
+        } else {
+            let destination = platform::destination(&request.destination)?;
+            let used: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM jobs WHERE destination=?1 COLLATE NOCASE)",
+                [destination.to_str().context("non_unicode_path")?],
+                |r| r.get(0),
+            )?;
+            if used {
+                bail!("destination_in_use");
+            }
+            destination
+        };
         if let Some(digest) = &request.expected_sha256
             && (digest.len() != 64 || !digest.bytes().all(|c| c.is_ascii_hexdigit()))
         {
@@ -143,7 +217,10 @@ impl Store {
             .join(format!(".idmxl-{id}.part"));
         transaction.execute("INSERT INTO jobs(id,source,display_url,destination,staging,replayable,expected_sha256,created) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
             params![id, platform::protect(url.as_str().as_bytes())?, platform::display_url(&url), destination.to_str().context("non_unicode_path")?, staging.to_str().context("non_unicode_path")?, request.replayable, request.expected_sha256.map(|s|s.to_ascii_lowercase()), now()])?;
-        transaction.execute("INSERT INTO policies(job_id) VALUES (?1)", [&id])?;
+        transaction.execute(
+            "INSERT INTO policies(job_id,queue_name) VALUES (?1,?2)",
+            params![id, queue],
+        )?;
         transaction.execute(
             "INSERT INTO job_origins VALUES (?1,?2)",
             params![id, url.origin().ascii_serialization()],
@@ -202,7 +279,9 @@ impl Store {
     }
 
     pub fn view(&self, id: &str) -> Result<JobView> {
-        Ok(self.get(id)?.into())
+        let mut view: JobView = self.get(id)?.into();
+        view.queue_window_open = self.queue_open(&view.policy.queue_name)?;
+        Ok(view)
     }
     pub fn list(&self) -> Result<Vec<JobView>> {
         let mut statement = self
@@ -410,8 +489,22 @@ impl Store {
         Ok(())
     }
     pub(crate) fn next_queued(&self) -> Result<Option<String>> {
-        use rusqlite::OptionalExtension;
-        Ok(self.db.query_row("SELECT j.id FROM jobs j JOIN policies p ON p.job_id=j.id JOIN job_origins o ON o.job_id=j.id LEFT JOIN origin_cooldowns c ON c.origin=o.origin WHERE j.state IN ('queued','publishing') AND p.not_before<=?1 AND (p.deadline IS NULL OR p.deadline>?1) AND (c.until_ms IS NULL OR c.until_ms<=?1) ORDER BY (SELECT MAX(j2.last_started) FROM jobs j2 JOIN policies p2 ON p2.job_id=j2.id WHERE p2.queue_name=p.queue_name),p.priority DESC,j.last_started,j.created,j.rowid LIMIT 1", [now()], |r| r.get(0)).optional()?)
+        let mut statement = self.db.prepare("SELECT j.id,p.queue_name,j.state FROM jobs j JOIN policies p ON p.job_id=j.id JOIN job_origins o ON o.job_id=j.id LEFT JOIN origin_cooldowns c ON c.origin=o.origin WHERE j.state IN ('queued','publishing') AND p.not_before<=?1 AND (p.deadline IS NULL OR p.deadline>?1) AND (c.until_ms IS NULL OR c.until_ms<=?1) ORDER BY (SELECT MAX(j2.last_started) FROM jobs j2 JOIN policies p2 ON p2.job_id=j2.id WHERE p2.queue_name=p.queue_name),p.priority DESC,j.last_started,j.created,j.rowid")?;
+        let candidates = statement.query_map([now()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        for candidate in candidates {
+            let (id, queue, state) = candidate?;
+            // Publication recovery does not fetch a new body and must not wait for a window.
+            if state == "publishing" || self.queue_open(&queue)? {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
     }
 
     pub fn retry_deadline(&self, url: &str) -> Result<Option<i64>> {
@@ -447,6 +540,69 @@ pub(crate) fn now() -> i64 {
 mod tests {
     use super::*;
     #[test]
+    fn v3_upgrade_waits_for_scheduler_and_preserves_jobs_in_backup() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let job = store
+            .add(AddJob {
+                url: "https://example.org/file?token=protected".into(),
+                destination: root.path().join("result.bin"),
+                replayable: true,
+                expected_sha256: None,
+            })
+            .unwrap();
+        store.db.execute_batch("DROP TABLE queue_windows; DROP INDEX jobs_destination_lookup; PRAGMA user_version=3;").unwrap();
+        drop(store);
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(root.path().join("scheduler.lock"))
+            .unwrap();
+        fs2::FileExt::try_lock_exclusive(&lock).unwrap();
+        assert_eq!(
+            Store::open(root.path()).err().unwrap().to_string(),
+            "migration_requires_idle_engine"
+        );
+        drop(lock);
+        let upgraded = Store::open(root.path()).unwrap();
+        assert_eq!(
+            upgraded.view(&job.id).unwrap().source,
+            "https://example.org/file"
+        );
+        assert_eq!(
+            upgraded
+                .db
+                .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+                .unwrap(),
+            4
+        );
+        let path = std::fs::read_dir(root.path())
+            .unwrap()
+            .filter_map(|p| p.ok())
+            .find(|p| p.file_name().to_string_lossy().starts_with("jobs-v3-"))
+            .unwrap()
+            .path();
+        let old = Connection::open(path).unwrap();
+        assert_eq!(
+            old.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            old.query_row("SELECT id FROM jobs", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            job.id
+        );
+        assert_eq!(
+            old.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
     fn migration_waits_for_idle_engine_and_backs_up_old_schema() {
         let root = tempfile::tempdir().unwrap();
         let db = Connection::open(root.path().join("jobs.db")).unwrap();
@@ -474,7 +630,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            3
+            4
         );
         let backup = std::fs::read_dir(root.path())
             .unwrap()

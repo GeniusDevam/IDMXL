@@ -24,5 +24,5 @@ For manual recovery, keep the original profile intact first. With all app/engine
 - Clean Windows 11 x64 VM installation without developer runtimes; upgrade and broader uninstall preservation checks. One isolated development-machine silent uninstall passed on 16 October 2026.
 - Signed updates, authenticated release identity/freshness, key recovery and paired database rollback tests.
 - Physical storage power-loss, disk-full, permissions, reparse race, removable/network filesystem and sleep/network-change qualification.
-- Recurring schedules, adaptive concurrency/benchmarks, category rules and remaining Core UI/accessibility workflows.
+- Wake/timezone-transition qualification, default/UI adaptive concurrency and broad benchmarks, remaining Core workflows and accessibility. Recurring queue hours and import folder rules have scoped fixture/native evidence in WORKFLOWS.md.
 - Licence/notice closure and artifact-bound release SBOM. No speed advantage, full filesystem support or complete IDM parity is claimed.

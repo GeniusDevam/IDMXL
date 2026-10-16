@@ -38,6 +38,7 @@ pub fn drain(engine: &Engine, watch: bool, stop: Arc<AtomicBool>) -> Result<()> 
         let replayable = engine.store.get(&id)?.replayable;
         let baseline = engine.store.get(&id)?.durable;
         let watch_id = id.clone();
+        let queue_name = policy.queue_name.clone();
         let finished = Arc::new(AtomicBool::new(false));
         let directory = engine.store.directory.clone();
         let signal = job_stop.clone();
@@ -65,10 +66,11 @@ pub fn drain(engine: &Engine, watch: bool, stop: Arc<AtomicBool>) -> Result<()> 
                     break;
                 }
                 if replayable
-                    && started.elapsed() >= quantum
                     && store
                         .get(&watch_id)
                         .is_ok_and(|j| j.mode == "ranged" && j.durable > baseline)
+                    && (started.elapsed() >= quantum
+                        || !store.queue_open(&queue_name).unwrap_or(false))
                 {
                     signal.store(true, Ordering::Relaxed);
                     break;

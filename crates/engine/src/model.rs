@@ -88,11 +88,13 @@ pub struct JobView {
     pub sha256: Option<String>,
     pub error: Option<String>,
     pub file_available: bool,
+    pub queue_window_open: bool,
 }
 
 impl From<Job> for JobView {
     fn from(job: Job) -> Self {
         Self {
+            queue_window_open: true,
             name: job
                 .destination
                 .file_name()

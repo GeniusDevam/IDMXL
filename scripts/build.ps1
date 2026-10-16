@@ -33,6 +33,7 @@ if ($Bundle) {
     $nativeArgs = @('build','--locked','--features','custom-protocol','--manifest-path',(Join-Path $native 'Cargo.toml'))
     if ($profile -eq 'release') { $nativeArgs += '--release' }
     Invoke-Checked -Program $cargo -Arguments $nativeArgs
-    Copy-Item -LiteralPath (Join-Path $repo "target\$profile\idmxl.exe") -Destination (Join-Path $native "target\$profile\idmxl.exe") -Force
 }
+# Keep the checkout launcher paired with the newly built engine after bundle builds too.
+Copy-Item -LiteralPath (Join-Path $repo "target\$profile\idmxl.exe") -Destination (Join-Path $native "target\$profile\idmxl.exe") -Force
 Write-Output "IDMXL build complete ($profile). Use scripts\start.ps1 to open it."

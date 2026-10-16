@@ -1,5 +1,7 @@
 # Initial architecture decisions
 
+These ADRs retain milestone history. Later decisions supersede earlier scope statements; ADR-011 records the current recurring-hours and import behavior.
+
 ## ADR-001: keep the planned engine stack
 
 Rust owns state, transport and storage. libcurl is statically built with Schannel and nghttp2 on Windows; SQLite is bundled. The `doctor` command reports linked versions. Real ALPN HTTP/2 range transfers passed a TLS fixture, alongside untrusted/expired/hostname-mismatch failures. Test trust uses a temporary CA and signed CRL; Windows trust and production TLS verification remain unchanged.
@@ -53,4 +55,14 @@ The per-user NSIS installer bundles the desktop, engine, original extension and 
 ## ADR-010: qualify adaptive admission separately
 
 `run --adaptive` is experimental and opt-in, restricted to uncapped conditional range jobs. It starts at one and uses pairs of one-second goodput samples, one-slot trials, a minimum trial gain, conservative cooldowns and sustained-regression reduction. Active leases drain normally; identity validation, positional writes and journal boundaries are unchanged. Retry/throttle trouble reduces admission to one, and Retry-After still governs actual request admission. The configured maximum is never exceeded. One-use/sequential sources are not probed or replayed by this flag. Rate-capped jobs and desktop queues keep their established fixed behavior until dynamic rate allocation is separately qualified.
+
+## ADR-011: recurring admission and generated destinations
+
+Schema v4 persists named-queue windows in local civil time. Chrono converts the current Windows time into weekday/minute values; pure calendar logic handles same-day, overnight and all-day windows. Admission scans the existing queue ordering until it finds an eligible queue, so a closed queue cannot starve another one. Publication recovery can proceed without waiting for recurring hours. Full DST/system-time-change and wake qualification remain separate work.
+
+The watcher yields ranged work only after a newly durable extent when its window closes. Sequential/one-use work finishes its original request; it is not automatically interrupted and replayed just to enforce recurring hours. Completed jobs do not generate new repeated downloads. Explicit per-job Start/Resume bypasses automatic scheduling and now forwards its saved connection/retry/rate settings to the CLI.
+
+Import links uses the engine's URL validator, DPAPI storage and no-overwrite publisher. It decodes/sanitizes URL path filenames, applies validated extension-to-single-subfolder rules, and reserves a free numbered destination inside the job's immediate SQLite transaction. ASCII case-insensitive reservation lookup covers ordinary Windows filename collisions; filesystem publication remains the final no-overwrite authority. Existing category reparse points are refused. Broader Unicode case-alias and reparse-race matrices are not claimed.
+
+The whole input and each queue/rule are bounded. Per-entry results omit secret source tokens. Accepted input lines are removed in the desktop before a correction can resubmit them. A repeat desktop/CLI import remains an explicit new import rather than the durable idempotent browser-host protocol. Folder preferences contain no source URLs. Migrations require both the engine and scheduler to be idle; a v3 snapshot is retained before v4 changes.
 
