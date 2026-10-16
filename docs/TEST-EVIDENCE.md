@@ -14,6 +14,8 @@ The refreshed inventory still has 353 components, 516 collected root notices and
 
 Code checkpoint `8bdda2f` is pushed to the private repository. Its [fresh Windows validation run](https://github.com/GeniusDevam/IDMXL/actions/runs/38856162109) was in progress when saved; the local results above are complete, and this remote result is not claimed as passed yet.
 
+That run subsequently failed the active-range recurring-window fixture: the small generated file could finish before the test observed the control transition. The fixture now gates ranges after the first extent until it observes the queued stop, asserts an active first checkpoint of exactly 1 MiB, then releases the gate and verifies completion. Its original pause/window/hash assertions remain. Ten consecutive corrected-fixture runs passed in 21.051 seconds. This changes only the test harness; the runtime/installer bytes remain unchanged. The complete suite and fresh CI are rerun for this correction.
+
 ## 15 October 2026: Windows x64 development machine
 
 Rust 1.99.0, MSVC Build Tools 2022, bundled libcurl reporting 8.22.0-DEV with Schannel and HTTP/2 capability, nghttp2 1.68.1 and SQLite. Exact versions are recorded in Cargo.lock. The official rustup installer was downloaded into a workspace-local tools directory; no global PATH changes were required.

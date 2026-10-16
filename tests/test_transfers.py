@@ -65,6 +65,12 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         if byte_range and path != "/ignore":
             start, end = map(int, byte_range.removeprefix("bytes=").split("-"))
             end = min(end, len(DATA) - 1)
+            if path == "/window-gated" and start > 0:
+                # Keep a real unfinished lease until the test observes the window stop.
+                # A fast runner must not finish the entire file before the control update.
+                gate = getattr(self.server, "window_range_gate", None)
+                if gate is not None:
+                    gate.wait(timeout=20)
             body = DATA[start:end + 1]
             self.send_response(206)
             claimed_end = end + 1 if path == "/malformed" and byte_range != "bytes=0-0" else end
@@ -80,7 +86,10 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.close_connection = True
-        self.end_headers()
+        try:
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return
         if path == "/truncate" and byte_range != "bytes=0-0" and attempt == 1:
             body = body[:len(body) // 2]
         try:
@@ -545,22 +554,28 @@ class TransferTests(unittest.TestCase):
             self.command("queue-window","Night","--set",input=json.dumps(bad),success=False)
 
     def test_recurring_window_change_checkpoints_and_resumes_active_ranges(self):
-        job=self.add("/slow",name="window-ranges.bin")
+        gate=threading.Event()
+        self.server.window_range_gate=gate
+        self.addCleanup(gate.set)
+        job=self.add("/window-gated",name="window-ranges.bin")
         closed={"days":1 << ((time.localtime().tm_wday+3)%7),"start_minute":0,"end_minute":0}
         self.command("queue-window","Default","--set",input=json.dumps(closed))
         process=subprocess.Popen([str(EXE),"--state-dir",str(self.state),"queue-run","--watch"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         self.processes.append(process); time.sleep(.3)
         self.assertEqual(self.command("show",job["id"])["state"],"queued")
         self.command("queue-window","Default","--set",input="null")
-        self.wait_checkpoint(job,process)
+        checkpoint=self.wait_checkpoint(job,process)
+        self.assertEqual(checkpoint["state"],"downloading")
+        self.assertEqual(checkpoint["durable_bytes"],"1048576")
         self.command("queue-window","Default","--set",input=json.dumps(closed))
         deadline=time.monotonic()+12
         while time.monotonic()<deadline:
             current=self.command("show",job["id"])
             if current["state"]=="queued" and int(current["durable_bytes"])>0: break
             time.sleep(.05)
-        else: self.fail("Active ranged job did not checkpoint and wait for recurring hours")
+        else: self.fail(f"Active ranged job did not wait for recurring hours: state={current['state']}, durable={current['durable_bytes']}, window_open={current['queue_window_open']}")
         self.assertFalse(current["queue_window_open"])
+        gate.set()
         self.command("queue-window","Default","--set",input="null")
         deadline=time.monotonic()+15
         while time.monotonic()<deadline:
