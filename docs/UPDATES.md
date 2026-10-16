@@ -1,6 +1,6 @@
 # Signed updates and setup
 
-The updater code exists, but ordinary preview builds intentionally have no online update authority. **About this preview → Check for updates** reports that configuration is missing and makes no network request. No production signing key, certificate, account, paid service or endpoint has been created on the user's behalf.
+The updater code exists, but ordinary preview builds intentionally have no online update authority. **About this preview â†’ Check for updates** reports that configuration is missing and makes no network request. No production signing key, certificate, account, paid service or endpoint has been created on the user's behalf.
 
 ## What the owner needs
 
@@ -14,7 +14,7 @@ Install the operator-only dependencies from `scripts/requirements-release.txt` i
 
 Update the app, Cargo and frontend versions consistently. Run all checks in RELEASE-CHECKLIST.md, including media fixtures and native Clippy. Prepare a controlled FFmpeg build with `scripts/media-build.ps1` and retain its exact source and notices. Use `scripts/release-build.ps1` with Endpoint, ArtifactOrigin, PublicKeyFile, CertificateThumbprint, TimestampUrl and MediaBuildDirectory. The script validates configuration, builds with the public release authority embedded, and requests Tauri's Authenticode signing. It does not publish anything.
 
-Validate both the application and installer signatures. Fill `docs/release-manifest.example.json` with the final signed installer's SHA-256 and byte size. Set a strictly increasing sequence and UTC Unix-millisecond issued/expires values, with at most fourteen days between them. Run `python scripts/sign-release.py --key <private-key.pem> --manifest <filled.json> --installer <signed-setup.exe> --output <stable.json>`. Upload the immutable installer first and publish the signed envelope last, at the configured address. Never reuse a sequence for different payload bytes. Refresh metadata before expiry, even when the app version stays unchanged.
+The preparation script validates the final installer signature. Install it in the release qualification VM and validate the installed application signature as well. Tauri restores the unpatched checkout executable after bundling, so that checkout file is not the packaged application to qualify. Fill `docs/release-manifest.example.json` with the final signed installer's SHA-256 and byte size. Set a positive, strictly increasing sequence and UTC Unix-millisecond issued/expires values, with at most fourteen days between them. Run `python scripts/sign-release.py --key <private-key.pem> --manifest <filled.json> --installer <signed-setup.exe> --output <stable.json>`. Upload the immutable installer first and publish the signed envelope last, at the configured address. Never reuse a sequence for different payload bytes. Refresh metadata before expiry, even when the app version stays unchanged.
 
 This application uses its own small Ed25519-signed envelope and journalled downloader; it does not use Tauri's separate updater signature format. The Windows installer and app still require Authenticode. A fixture key or a self-signed test certificate is not a public production trust identity.
 

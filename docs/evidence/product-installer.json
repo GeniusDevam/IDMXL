@@ -1,0 +1,15 @@
+{
+  "installed_helper_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "qualification": "isolated development-machine resources and CLI; GUI/clean-machine/trusted update round trip not qualified",
+  "install_exit": 0,
+  "installation_directory_removed": true,
+  "uninstall_exit": 0,
+  "packaged_files_checked": 13,
+  "global_history_byte_identical_through_uninstall": true,
+  "uninstall_registry_removed": true,
+  "preview_updates_configured": false,
+  "desktop_match": "exact after only Tauri UNK to NSS three-byte marker patch",
+  "engine_helpers_exact_hash_match": true,
+  "date": "2026-10-16",
+  "installed_engine_version": "0.1.0"
+}

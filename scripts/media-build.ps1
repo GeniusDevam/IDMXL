@@ -12,8 +12,9 @@ function Fetch-Verified([string]$Url,[string]$Name,[string]$Hash) {
 $compiler = Fetch-Verified 'https://github.com/skeeto/w64devkit/releases/download/v2.10.1/w64devkit-x64-2.10.1.7z.exe' 'w64devkit.7z.exe' 'ADD1EDF984CE4D473CFEB7C52E0AB38DB73A855BBA6C7F564D5E16648EB2896A'
 $archive = Fetch-Verified 'https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz' 'ffmpeg-9.0.2.tar.xz' '8C3850283EB25FA026482078A04051E0BE17347B09EF81A0849BEC15A96E002E'
 if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory 'w64devkit\bin\sh.exe'))) {
-    & $compiler -y "-o$BuildDirectory"
-    if ($LASTEXITCODE -ne 0) { throw 'Compiler extraction failed' }
+    # The verified archive is a GUI-subsystem self-extractor; PowerShell must wait explicitly.
+    $extractor=Start-Process -FilePath $compiler -ArgumentList @('-y',('-o"{0}"' -f $BuildDirectory)) -Wait -PassThru -WindowStyle Hidden
+    if ($extractor.ExitCode -ne 0) { throw 'Compiler extraction failed' }
 }
 if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory 'ffmpeg-9.0.2\configure'))) {
     & tar.exe -xf $archive -C $BuildDirectory

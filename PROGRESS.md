@@ -101,6 +101,7 @@ G5: add selected extended workflows from the full plan, with independent tests a
 - [x] Owner signing/hosting preparation scripts and UPDATES.md; production authority is deliberately unset because the owner has no certificate or endpoint yet.
 - [x] Schema v5 with idle v4 backup; prior four completed QA jobs/history remain intact.
 - [x] 86 automated cases passed: 29 Rust, 49 Python and 8 extension checks. Optional large-file case was not rerun. Native lint/build and NSIS packaging passed.
+- [x] Isolated package-resource/CLI install and uninstall smoke passed; prior global history remained unchanged. New GUI and clean-machine qualification are separate.
 - [x] Updated 370-component inventory with 545 notices, 44 review entries and zero CycloneDX schema errors.
 - [ ] Real Edge transfer qualification: extension UI is visible, but native-host-not-found prevents acknowledgement. Registry/configuration/stdio checks pass. Browser restart retry was stopped by the UI tool; see TEST-EVIDENCE.md.
 - [ ] New media/updater UI click-through, real optional capture permissions, clean-machine installation and trusted production update round trip.

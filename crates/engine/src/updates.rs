@@ -121,7 +121,8 @@ fn verify(
     let version = semver::Version::parse(&release.version).context("invalid_update_manifest")?;
     let current = semver::Version::parse(current).context("invalid_update_manifest")?;
     let url = https(&release.url)?;
-    if release.product != "dev.idmxl.desktop"
+    if release.sequence == 0
+        || release.product != "dev.idmxl.desktop"
         || release.channel != config.channel
         || release.target != "windows-x86_64"
         || !version.pre.is_empty()
@@ -492,14 +493,15 @@ mod tests {
             )
             .is_err()
         );
-        for change in 0..5 {
+        for change in 0..6 {
             let mut altered = m.clone();
             match change {
                 0 => altered.target = "linux-x86_64".into(),
                 1 => altered.product = "other".into(),
                 2 => altered.url = "https://attacker.example.org/setup.exe".into(),
                 3 => altered.expires = m.issued + 15 * 86_400_000,
-                _ => altered.version = "0.1.0-beta.1".into(),
+                4 => altered.version = "0.1.0-beta.1".into(),
+                _ => altered.sequence = 0,
             };
             assert!(
                 verify(
