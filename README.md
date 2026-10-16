@@ -14,9 +14,12 @@ A Windows download manager in early development. The first milestone is a real R
 - Automatic named queues, priorities, one-time UTC schedules/deadlines, recurring local-time weekday/overnight queue hours, checkpoint-based rotation, and per-job/global queue rate ceilings. One job runs at a time.
 - Desktop plain-link import, editable file-type folder rules, automatic collision-safe names, and bounded/deduplicated JSON batches; explicit public-link browser handoff extension and durable native protocol.
 - An original Tauri/React Windows interface with add/start/pause/cancel, search, schedules, tray, themes and reveal-in-folder. Detached engine processes keep downloads running when the window is hidden/closed.
-- Idle-only schema migrations with pre-migration SQLite snapshots, a per-user NSIS installer build and dependency/notice inventory tooling.
+- Idle-only schema migrations with snapshots, a per-user NSIS installer and dependency/notice inventory.
+- Opt-in public-folder capture with durable cancellation recovery and clicked media-element discovery. See [browser setup](docs/BROWSER-HANDOFF.md).
+- Direct media, restricted clear HLS VOD and static DASH, exact rendition/audio selection, audio-only output and verified stream-copy assembly with bundled helpers. See [media workflow](docs/MEDIA.md).
+- Signed-metadata updater, Windows publisher verification and paired application/database recovery. Preview builds have no online authority; [owner setup](docs/UPDATES.md) lists the certificate, key and hosting needed.
 
-This is a development milestone, not a completed Core release. Default/UI adaptive integration and broad benchmarks, wake scheduling, strict quotas, signed updates and the Media/Extended releases remain open. Browser installation/click-through and installer clean-machine/upgrade/uninstall qualification remain open. The controlled 8K MOV/PCM remux experiment is documented but not bundled as a media feature. The adaptive experiment uses an artificial localhost per-request bottleneck and establishes no general or browser speed advantage. See [PROGRESS.md](PROGRESS.md) for the full remaining gates.
+This is a development preview. Full IDM parity, default/UI adaptive integration, wake scheduling, strict quotas and Extended workflows remain open. The scoped media workflow is implemented; broader codecs/HDR and named video-site extractors remain unqualified. Real Edge handoff currently reports host-not-found despite valid local registration and is unresolved. Clean-machine/upgrade and trusted production-update qualification remain open. The adaptive benchmark establishes no general or browser speed advantage. See [PROGRESS.md](PROGRESS.md).
 
 ## Open the desktop preview
 
@@ -25,6 +28,7 @@ For the already-built local copy, double-click `Start-IDMXL.cmd`. The preview us
 To build from a fresh clone, also install Node.js 20.19+ or 22.12+ and a supported WebView2 Runtime, then run:
 
 ```powershell
+.\scripts\media-build.ps1 -BuildDirectory ..\..\work\media-build
 .\scripts\build.ps1
 .\scripts\start.ps1
 ```
@@ -48,7 +52,7 @@ python -m unittest discover -s tests -v
 
 Python 3.11+ is used only for deterministic end-to-end tests. They run a temporary HTTP server on loopback and use generated files. Network-restricted execution sandboxes must permit loopback for the test processes.
 
-For the fault and TLS/HTTP2 fixtures, install `tests/requirements.txt` into a development Python environment and run `scripts/test.ps1 -Faults -Protocols`. The ordinary build excludes fault/test-CA hooks. The optional resource test uses a generated 4,294,967,553-byte file and needs at least 6 GiB free; see TEST-EVIDENCE.md. Test runtimes are not shipped.
+For the fault and TLS/HTTP2 fixtures, install `tests/requirements.txt` into a development Python environment and run `scripts/test.ps1 -Faults -Protocols -Media`. The ordinary build excludes fault/test-CA hooks. The optional resource test uses a generated 4,294,967,553-byte file and needs at least 6 GiB free; see TEST-EVIDENCE.md. Test runtimes are not shipped.
 
 ## Use the CLI
 
@@ -78,7 +82,7 @@ Cancel preserves partial files and prevents further running of that job. The cur
 
 `policy <job-id>` reads a JSON object from stdin: `queue_name`, `priority` (-1000..1000), `not_before` (UTC Unix milliseconds), optional `deadline`, `connections` (1..4), `retries` (0..5), and `speed_limit` (bytes/s; zero unlimited). Rate changes apply when a job starts. Schedules run only while the logged-in queue worker is alive; missed start times run when next eligible. Explicitly paused jobs stay paused; global queue pause preserves its current job for the next queue start. Failed jobs require an explicit retry/requeue.
 
-`batch` reads a JSON array of up to 1,000 objects with `url`, `destination`, optional `replayable` and `expected_sha256`. Each result is reported separately; identical URL/destination pairs within the input are deduplicated. It queues only. `list` exports redacted history, rather than reusable secret URLs. See [browser handoff setup](docs/BROWSER-HANDOFF.md), [media experiment](docs/MEDIA-BUILD.md) and [release checks](docs/RELEASE-CHECKLIST.md).
+`batch` reads a JSON array of up to 1,000 objects with `url`, `destination`, optional `replayable` and `expected_sha256`. Each result is reported separately; identical URL/destination pairs within the input are deduplicated. It queues only. `list` exports redacted history, rather than reusable secret URLs. See [browser handoff setup](docs/BROWSER-HANDOFF.md), [media workflow](docs/MEDIA.md) and [release checks](docs/RELEASE-CHECKLIST.md).
 
 ## Repository layout
 

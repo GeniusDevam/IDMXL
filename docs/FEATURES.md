@@ -11,10 +11,10 @@ Status on 16 October 2026. "Partial" means a useful subset exists; it does not s
 | F05 | Scheduling | Partial: one-time UTC starts/deadlines plus persisted weekday/overnight local queue windows, safe range checkpointing and single-stream finish behavior; wake and full DST/timezone-change qualification pending. |
 | F06 | Limits | Partial: per-job and global queue speed ceilings at admission; strict quotas and metered policies pending. |
 | F07 | Categories/folders | Partial: editable extension-to-subfolder rules in desktop link import, safe generated names, collision reservation and no-overwrite publication; rules do not move existing files or override explicit destinations. |
-| F08 | Browser handoff | Partial: original MV3 explicit-link extension, bounded/idempotent native protocol, public DNS/address policy and setup script; real Edge install/click-through pending. |
-| F09 | Browser video button | Pending, Media release. |
-| F10 | Video quality | Pending, Media release. |
-| F11 | Track combination | G0 feasibility passed for generated original 8K MOV/RGB + WAV/PCM stream copy; product media workflow and streaming-codec matrix pending. |
+| F08 | Browser handoff | Partial: explicit links plus opt-in public-folder capture with held preparation, verified cancellation and restart recovery; bounded native protocol and public DNS policy. Automated checks pass; real Edge evidence is in TEST-EVIDENCE.md. |
+| F09 | Browser video button | Partial: clicked popup discovers video/audio element sources and queues supported public media. Blob/session-bound players and named site extractors are unsupported. |
+| F10 | Video quality | Partial: exact rendition/audio choices for direct files, restricted clear HLS VOD and static DASH. No conversion or silent quality fallback; broader codecs/HDR qualification pending. |
+| F11 | Track combination | Partial: product queue, controlled helpers, retained tracks, audio-only and stream-copy verification. Original 8K MOV/RGB + PCM, HLS AAC ranges and DASH AAC/fMP4 fixtures pass; broader codec matrix pending. |
 | F12 | Batches | Partial: desktop plain-link import and bounded JSON file-job/link batches, deduplication, category folders and per-entry results; page discovery/video batches/playlists pending. |
 | F13 | Page links | Pending, Extended. |
 | F14 | Grabber | Pending, Extended. |
@@ -31,7 +31,7 @@ Status on 16 October 2026. "Partial" means a useful subset exists; it does not s
 | F25 | Progress/history | Partial: history/search, received/durable bytes, sampled speed/ETA and actionable cooldowns; large-history/UI performance qualification pending. |
 | F26 | Interface | Partial: job/queue/schedule controls, tray, light/dark/system theme and folder reveal; full customization and accessibility qualification pending. |
 | F27 | Languages/accessibility | Pending qualification; English baseline. |
-| F28 | Installation/updates | Partial: per-user NSIS build, development-machine install/uninstall preservation smoke, schema backups/idle migration, inventory/notices; signed updates, clean-machine and broader upgrade/uninstall gates pending. |
+| F28 | Installation/updates | Partial: NSIS, schema-v5 idle migration/backups, Ed25519 metadata and publisher-checked updater, paired recovery and owner setup tools. Production authority is unset; trusted update round trip, clean-machine and distribution gates remain. |
 | F29 | Completion actions | Partial: explicit reveal-in-folder for completed available files; notifications/exit and advanced actions pending. |
 | F30 | Size/integrity | Partial: real 4 GiB-plus transfer/hash through a 397-character Unicode path passed; disk-full, reparse races and filesystem matrix pending. |
 | F31 | Sleep/network recovery | Partial: explicit rerun/resume; sleep/network-change qualification pending. |

@@ -28,3 +28,9 @@ The workflow milestone adds direct use of chrono 0.4.45 (MIT/Apache-2.0, clock/s
 
 Primary API references: [Chrono Local](https://docs.rs/chrono/0.4.45/chrono/offset/struct.Local.html), [Datelike](https://docs.rs/chrono/0.4.45/chrono/trait.Datelike.html), [percent decoding](https://docs.rs/percent-encoding/2.3.2/percent_encoding/fn.percent_decode_str.html).
 
+
+## Product layers: 16 October 2026
+
+New direct Rust dependencies are base64 0.22.1, ed25519-dalek 2.2.0, semver 1.0.28 and quick-xml 0.42.0, with exact graphs and licence expressions in the lockfiles/inventory. Controlled FFmpeg/ffprobe 9.0.2 helpers are now bundled under the scoped MEDIA.md workflow, with matching source archive, LGPL-2.1 notice, MinGW runtime terms and build recipe. AAC decoding supplies stream information; output always uses stream copy. No Python, extractor or fixture encoder runtime is shipped.
+
+Release signing uses operator-only cryptography, pinned in scripts/requirements-release.txt; it is separate from the shipped Ed25519 verifier. The refreshed SBOM records hashes for the exact staged FFmpeg executables in addition to locked package graphs. Historic component/notice counts above refer to earlier checkpoints. Root notice collection is not a full redistribution audit; native/static runtime obligations and the product licence remain unresolved before public distribution.

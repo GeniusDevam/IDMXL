@@ -1,9 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "IDMXL — Send link",
+  "name": "IDMXL — Downloads",
   "version": "0.1.0",
-  "description": "Explicitly queue a public HTTP(S) file link in your local IDMXL app.",
-  "permissions": ["contextMenus", "nativeMessaging", "storage"],
+  "description": "Send file links to IDMXL, with optional capture for qualified public downloads on sites you choose.",
+  "permissions": [
+    "contextMenus",
+    "nativeMessaging",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "optional_permissions": ["downloads", "webRequest"],
+  "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "IDMXL handoff" }
 }

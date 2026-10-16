@@ -73,6 +73,16 @@ enum Command {
     Batch,
     /// Add a plain link list with automatic filenames and optional category folders from JSON stdin.
     AddLinks,
+    /// Inspect a direct media, HLS VOD or static DASH URL from JSON stdin.
+    MediaInspect,
+    /// Queue selected original tracks and a local stream-copy output from JSON stdin.
+    MediaAdd,
+    /// Show the chosen media tracks without revealing their URLs.
+    MediaDetails { id: String },
+    /// Check authenticated release metadata; unconfigured previews do not access the network.
+    UpdateCheck,
+    /// Restore an update backup into a separate profile, preserving the current profile.
+    UpdateRecover { directory: PathBuf },
     /// Get a queue's recurring local-time hours; --set reads a window or null from stdin.
     QueueWindow {
         queue: String,
@@ -112,6 +122,20 @@ fn run() -> Result<()> {
             .unwrap_or_else(|| PathBuf::from(".local"))
             .join("IDMXL")
     });
+    if let Command::UpdateCheck = cli.command {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&idmxl_engine::updates::check(&directory)?)?
+        );
+        return Ok(());
+    }
+    if let Command::UpdateRecover { directory } = &cli.command {
+        println!(
+            "{}",
+            serde_json::json!({"recovered_profile":idmxl_engine::updates::restore(directory)?})
+        );
+        return Ok(());
+    }
     let store = Store::open(&directory)?;
     let value = match cli.command {
         Command::Add {
@@ -164,6 +188,7 @@ fn run() -> Result<()> {
         Command::Pause { id } => serde_json::to_value(store.request(&id, "paused")?)?,
         Command::Cancel { id } => serde_json::to_value(store.request(&id, "canceled")?)?,
         Command::Doctor => unreachable!(),
+        Command::UpdateCheck | Command::UpdateRecover { .. } => unreachable!(),
         Command::QueueWindow { queue, set } => {
             if set {
                 let window: Option<idmxl_engine::QueueWindow> = read_json(16384)?;
@@ -182,6 +207,17 @@ fn run() -> Result<()> {
             let batch: idmxl_engine::LinkBatch = read_json(1048576)?;
             serde_json::json!({"results":store.add_links(batch)?})
         }
+        Command::MediaInspect => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Source {
+                url: String,
+            }
+            let input: Source = read_json(65536)?;
+            serde_json::to_value(idmxl_engine::manifests::discover(&input.url, false)?.view())?
+        }
+        Command::MediaAdd => serde_json::to_value(store.add_media(read_json(65536)?, false)?)?,
+        Command::MediaDetails { id } => serde_json::to_value(store.media_details(&id)?)?,
         Command::Policy { id } => {
             let mut text = String::new();
             std::io::stdin().take(16385).read_to_string(&mut text)?;

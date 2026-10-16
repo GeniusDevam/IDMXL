@@ -1,12 +1,18 @@
 mod adaptive;
+pub mod capture;
 pub mod engine;
 mod fault;
+pub mod manifests;
+pub mod media;
+mod media_helper;
 pub mod model;
 pub mod network;
 pub mod platform;
 pub mod scheduler;
+mod small_http;
 pub mod store;
 pub mod transport;
+pub mod updates;
 pub mod workflows;
 
 pub use engine::{Engine, RunOptions};

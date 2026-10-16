@@ -1,0 +1,29 @@
+# Signed updates and setup
+
+The updater code exists, but ordinary preview builds intentionally have no online update authority. **About this preview → Check for updates** reports that configuration is missing and makes no network request. No production signing key, certificate, account, paid service or endpoint has been created on the user's behalf.
+
+## What the owner needs
+
+1. A Windows Authenticode code-signing certificate and access to its private key through the Windows certificate store. Choose a provider that supports the intended local or CI signer. Keep the provider's timestamp service address. Do not send private keys or certificate passwords in chat.
+2. An HTTPS address for the stable release envelope and an HTTPS origin for immutable installer files. The private GitHub source repository remains private. An ordinary unauthenticated updater cannot download private GitHub release assets without a separate authenticated distribution design. Use a public artifact-only origin, or establish that private distribution design before deployment.
+3. A separate Ed25519 release-metadata key, encrypted offline backup and an assigned release owner. Its public key and the approved certificate thumbprint are embedded at build time. They cannot be changed through an app setting or a downloaded manifest.
+
+## Prepare a release
+
+Install the operator-only dependencies from `scripts/requirements-release.txt` in an isolated Python environment. Run `python scripts/sign-release.py --generate-key --key <secure-path-outside-repo> --public-file <public-key.txt>`. The script asks for a password and refuses to overwrite files. Back up the private key securely. This is a setup command for the owner, not something run automatically by this repository.
+
+Update the app, Cargo and frontend versions consistently. Run all checks in RELEASE-CHECKLIST.md, including media fixtures and native Clippy. Prepare a controlled FFmpeg build with `scripts/media-build.ps1` and retain its exact source and notices. Use `scripts/release-build.ps1` with Endpoint, ArtifactOrigin, PublicKeyFile, CertificateThumbprint, TimestampUrl and MediaBuildDirectory. The script validates configuration, builds with the public release authority embedded, and requests Tauri's Authenticode signing. It does not publish anything.
+
+Validate both the application and installer signatures. Fill `docs/release-manifest.example.json` with the final signed installer's SHA-256 and byte size. Set a strictly increasing sequence and UTC Unix-millisecond issued/expires values, with at most fourteen days between them. Run `python scripts/sign-release.py --key <private-key.pem> --manifest <filled.json> --installer <signed-setup.exe> --output <stable.json>`. Upload the immutable installer first and publish the signed envelope last, at the configured address. Never reuse a sequence for different payload bytes. Refresh metadata before expiry, even when the app version stays unchanged.
+
+This application uses its own small Ed25519-signed envelope and journalled downloader; it does not use Tauri's separate updater signature format. The Windows installer and app still require Authenticode. A fixture key or a self-signed test certificate is not a public production trust identity.
+
+## Checks and recovery
+
+The verifier binds product, stable channel, Windows x64 target, version, monotonically increasing sequence, exact installer hash/size, origin, issue time and expiry. It rejects downgrade, same-sequence equivocation, expired metadata, clock rollback relative to a previously seen release and unexpected origins. HTTPS, public-address DNS checks and Windows publisher validation also apply. A local administrator or malware running as the same Windows user is outside this protection boundary.
+
+Installation pauses managed downloads and stops queue admission. It validates the downloaded installer, takes exclusive profile/engine/scheduler locks, snapshots the committed database with `VACUUM INTO`, and saves the matching previous app, engine and helpers with a protected hash receipt. A detached fixed installer runner waits for the interface to exit, checks the installer again, runs NSIS and validates the installed app before restarting it. The runner records success/failure in the recovery directory.
+
+On failure, keep the current profile intact. Run the matching CLI's `update-recover <recovery-directory>` to validate the protected receipt and create a **new** restored profile. Launch `<recovery-directory>/previous/idmxl-desktop.exe` with `IDMXL_STATE_DIR` set to that returned path. This pairs the previous application with its database snapshot without silently rewinding newer history. User download files remain in their original locations. The current profile, failed installer and recovery evidence remain available.
+
+Recovery snapshots contain protected download secrets and must stay under the same user's control. Do not upload them as diagnostics. Key loss, revocation, certificate rotation, browser-store acceptance, clean Windows upgrade testing and a real trusted production install/update round trip remain release-owner qualification tasks. A key rotation needs an update authenticated by the existing authority or a separately verified installer; server-side key replacement alone is insufficient.

@@ -1,2 +1,71 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>IDMXL</title><link rel="stylesheet" href="popup.css"></head>
-<body><h1>IDMXL</h1><p>Right-click a public file link and choose <strong>Queue link in IDMXL</strong>.</p><p id="status" role="status">No handoff yet.</p><small>Links are queued locally. No browser downloads are intercepted. Signed-in sessions are not transferred.</small><script src="popup.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>IDMXL</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>IDMXL</h1>
+    <p>
+      Right-click a public file link and choose
+      <strong>Queue link in IDMXL</strong>.
+    </p>
+    <p id="status" role="status">No handoff yet.</p>
+    <button id="check-host" type="button">Check IDMXL connection</button>
+    <details>
+      <summary>Video and audio in this tab</summary>
+      <button id="find-media" type="button">Find media links</button
+      ><label>Source<select id="media-sources"></select></label
+      ><button id="inspect-media" type="button" disabled>
+        Find original tracks</button
+      ><label>Main track<select id="media-tracks"></select></label
+      ><label
+        >Separate audio<select id="media-audio">
+          <option value="">Main track audio</option>
+        </select></label
+      ><label
+        >Container<select id="media-container">
+          <option>mkv</option>
+          <option>mp4</option>
+          <option>webm</option>
+          <option>mov</option>
+          <option>m4a</option>
+          <option>mp3</option>
+        </select></label
+      ><label><input id="media-audio-only" type="checkbox" /> Audio only</label
+      ><button id="queue-media" type="button" disabled>
+        Queue selected media
+      </button>
+      <p>
+        Public direct files and supported clear VOD manifests only. Browser
+        sessions and blob links cannot be transferred.
+      </p>
+    </details>
+    <details>
+      <summary>Optional public-file capture</summary>
+      <p>
+        Capture files of at least 1 MB from a public, replayable download
+        folder. Cookie-dependent, private, redirected, unverified and tokenized
+        downloads stay in the browser.
+      </p>
+      <form id="capture-form">
+        <label
+          >Public download folder URL
+          <input
+            id="folder"
+            type="url"
+            placeholder="https://example.com/files/"
+            required /></label
+        ><button type="submit">Enable for this folder</button>
+      </form>
+      <button id="disable" type="button">Turn capture off</button>
+      <p id="rules"></p>
+    </details>
+    <small
+      >Signed-in sessions are not transferred. Open IDMXL to start queued
+      links.</small
+    >
+    <script src="popup.js"></script>
+  </body>
+</html>

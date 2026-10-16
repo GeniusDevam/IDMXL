@@ -323,9 +323,21 @@ impl std::fmt::Display for Throttled {
 impl std::error::Error for Throttled {}
 
 pub fn probe(url: &str, stop: Arc<AtomicBool>, public_only: bool) -> Result<Probe> {
+    probe_inner(url, stop, public_only, true)
+}
+pub fn probe_exact(url: &str, stop: Arc<AtomicBool>, public_only: bool) -> Result<Probe> {
+    probe_inner(url, stop, public_only, false)
+}
+fn probe_inner(
+    url: &str,
+    stop: Arc<AtomicBool>,
+    public_only: bool,
+    redirects: bool,
+) -> Result<Probe> {
     let mut resolved = url.to_owned();
     for _ in 0..=5 {
-        let easy = handle(&resolved, Mode::Probe, None, stop.clone(), 0, public_only)?;
+        let mut easy = handle(&resolved, Mode::Probe, None, stop.clone(), 0, public_only)?;
+        easy.timeout(Duration::from_secs(20))?;
         let result = easy.perform();
         let receiver = easy.get_ref();
         if stop.load(Ordering::Relaxed) {
@@ -346,6 +358,9 @@ pub fn probe(url: &str, stop: Arc<AtomicBool>, public_only: bool) -> Result<Prob
         }
         let status = receiver.headers.status;
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            if !redirects {
+                bail!("capture_ineligible");
+            }
             let location = receiver
                 .headers
                 .fields

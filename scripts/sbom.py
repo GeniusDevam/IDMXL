@@ -60,6 +60,18 @@ def main():
         ref=f"native:{name}@{version}"
         components[ref]={"type":"library","bom-ref":ref,"name":name,"version":version,"licenses":[{"expression":license}],
                          "properties":[{"name":"idmxl:verification","value":"Reported by the linked engine binary; embedded native notices still require review"}]}
+    media=ROOT / "apps/desktop/src-tauri/media"
+    for name in ("ffmpeg", "ffprobe"):
+        binary=media / (name+".exe")
+        if not binary.is_file():
+            raise RuntimeError("Stage the exact shipped media helpers before producing a release inventory")
+        ref=f"media:{name}@9.0.2"
+        components[ref]={"type":"application","bom-ref":ref,"name":name,"version":"9.0.2",
+                         "licenses":[{"expression":"LGPL-2.1-or-later"}],
+                         "hashes":[{"alg":"SHA-256","content":hashlib.sha256(binary.read_bytes()).hexdigest()}],
+                         "properties":[{"name":"idmxl:inventory-scope","value":"Exact staged Windows x64 helper; stream-copy build with AAC decoder, no network or encoders"}],
+                         "externalReferences":[{"type":"distribution","url":"https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz"}]}
+    notice_files("media:FFmpeg@9.0.2",media)
     for name,version in [("NSIS","3.13"),("nsis-tauri-utils","0.5.3")]:
         ref=f"installer:{name}@{version}"
         components[ref]={"type":"application","bom-ref":ref,"name":name,"version":version,

@@ -1,4 +1,4 @@
-param([switch]$Release, [switch]$Bundle)
+param([switch]$Release, [switch]$Bundle,[string]$TauriConfig,[string]$MediaBuildDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $frontend = Join-Path $repo 'apps\desktop'
@@ -6,6 +6,7 @@ $native = Join-Path $frontend 'src-tauri'
 $profile = if ($Release -or $Bundle) { 'release' } else { 'debug' }
 . (Join-Path $PSScriptRoot 'tools.ps1')
 Initialize-IDMXLTools
+. (Join-Path $PSScriptRoot 'stage-media.ps1') -BuildDirectory $MediaBuildDirectory
 
 function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)
@@ -27,7 +28,11 @@ New-Item -ItemType Directory -Path $binaries -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo "target\$profile\idmxl.exe") -Destination (Join-Path $binaries 'idmxl-x86_64-pc-windows-msvc.exe') -Force
 if ($Bundle) {
     Push-Location $frontend
-    try { Invoke-Checked -Program $npm -Arguments @('run', 'tauri', '--', 'build') }
+    try {
+        $tauriArgs=@('run','tauri','--','build')
+        if ($TauriConfig) { $tauriArgs+=@('--config',$TauriConfig) }
+        Invoke-Checked -Program $npm -Arguments $tauriArgs
+    }
     finally { Pop-Location }
 } else {
     $nativeArgs = @('build','--locked','--features','custom-protocol','--manifest-path',(Join-Path $native 'Cargo.toml'))

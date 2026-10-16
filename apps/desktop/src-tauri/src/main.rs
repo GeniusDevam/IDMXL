@@ -314,6 +314,127 @@ fn capabilities() -> serde_json::Value {
     idmxl_engine::capabilities()
 }
 
+#[tauri::command]
+async fn check_updates() -> Result<idmxl_engine::updates::UpdateView, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        idmxl_engine::updates::check(&directory()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle, version: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let config = idmxl_engine::updates::configuration()
+            .map_err(|e| e.to_string())?
+            .ok_or("updates_not_configured")?;
+        let profile = directory();
+        {
+            let store = open()?;
+            store
+                .set_queue_running(false)
+                .map_err(|_| "operation_failed")?;
+            for job in store.list().map_err(|_| "history_unavailable")? {
+                if matches!(job.state.as_str(), "downloading" | "verifying" | "pausing") {
+                    let _ = store.request(&job.id, "paused");
+                }
+            }
+        }
+        let installer =
+            idmxl_engine::updates::download(&profile, &version).map_err(|e| e.to_string())?;
+        let installed = std::env::current_exe()
+            .map_err(|_| "operation_failed")?
+            .parent()
+            .ok_or("operation_failed")?
+            .to_path_buf();
+        let started = std::time::Instant::now();
+        let recovery = loop {
+            match idmxl_engine::updates::snapshot(&profile, &installed) {
+                Ok(path) => break path,
+                Err(e)
+                    if e.to_string() == "update_requires_idle_app"
+                        && started.elapsed().as_secs() < 10 =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(100))
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        };
+        let file = std::fs::File::open(&installer).map_err(|_| "operation_failed")?;
+        let hash = idmxl_engine::platform::hash_extent(
+            &file,
+            0,
+            file.metadata().map_err(|_| "operation_failed")?.len(),
+        )
+        .map_err(|_| "operation_failed")?;
+        drop(file);
+        let script = recovery.join("install-update.ps1");
+        std::fs::write(
+            &script,
+            include_bytes!("../../../../scripts/install-update.ps1"),
+        )
+        .map_err(|_| "operation_failed")?;
+        let system = PathBuf::from(std::env::var_os("SystemRoot").ok_or("operation_failed")?)
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let mut command = Command::new(system);
+        command
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(script)
+            .arg("-Installer")
+            .arg(installer)
+            .arg("-InstalledDirectory")
+            .arg(installed)
+            .arg("-RecoveryDirectory")
+            .arg(recovery)
+            .arg("-Sha256")
+            .arg(hash)
+            .arg("-Thumbprint")
+            .arg(config.certificate_thumbprint)
+            .arg("-ParentProcessId")
+            .arg(std::process::id().to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        command.spawn().map_err(|_| "update_launch_failed")?;
+        app.exit(0);
+        Ok(())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+
+#[tauri::command]
+async fn inspect_media(url: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        idmxl_engine::manifests::discover(&url, false)
+            .and_then(|d| Ok(serde_json::to_value(d.view())?))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+#[tauri::command]
+async fn add_media(request: idmxl_engine::media::MediaRequest) -> Result<JobView, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open()?.add_media(request, false).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+#[tauri::command]
+async fn media_details(id: String) -> Result<Option<serde_json::Value>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open()?.media_details(&id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "operation_failed".to_owned())?
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -378,7 +499,12 @@ fn main() {
             save_folder_settings,
             add_links,
             get_queue_window,
-            save_queue_window
+            save_queue_window,
+            inspect_media,
+            add_media,
+            media_details,
+            check_updates,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("IDMXL desktop runtime failed");

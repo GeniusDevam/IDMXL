@@ -27,7 +27,7 @@ jobs:
           python -m pip install -r tests/requirements.txt
       - name: Engine, recovery, native protocol and TLS/HTTP2
         shell: pwsh
-        run: ./scripts/test.ps1 -Faults -Protocols
+        run: ./scripts/test.ps1 -Faults -Protocols -Media -MediaBuildDirectory "$env:RUNNER_TEMP/idmxl-media"
       - name: Native desktop checks
         shell: pwsh
         run: |

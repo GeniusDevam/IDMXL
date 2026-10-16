@@ -92,13 +92,24 @@ G4: direct media, restricted clear HLS/DASH VOD, exact source selection, control
 
 G5: add selected extended workflows from the full plan, with independent tests and support statements.
 
+## Milestone 5: browser, media and updater product layers
+
+- [x] Opt-in exact public-folder capture, bounded observation, held native preparation, verified browser cancellation and durable restart/acknowledgement recovery. Unsupported downloads retain browser ownership.
+- [x] Clicked media-element source discovery plus desktop media workflow: restricted direct/HLS VOD/static DASH selection, matching audio, audio-only, ordinary queues/limits and retained source tracks.
+- [x] Controlled local stream-copy helpers, build-specific hashes, bounded processes/output, source re-verification and recoverable final publication. Original 8K/PCM and AAC HLS/DASH fixtures pass.
+- [x] Signed Ed25519 update metadata, freshness/high-water state, hash/size/origin and Windows publisher checks, idle paired snapshots and separate-profile recovery.
+- [x] Owner signing/hosting preparation scripts and UPDATES.md; production authority is deliberately unset because the owner has no certificate or endpoint yet.
+- [x] Schema v5 with idle v4 backup; prior four completed QA jobs/history remain intact.
+- [x] 86 automated cases passed: 29 Rust, 49 Python and 8 extension checks. Optional large-file case was not rerun. Native lint/build and NSIS packaging passed.
+- [x] Updated 370-component inventory with 545 notices, 44 review entries and zero CycloneDX schema errors.
+- [ ] Real Edge transfer qualification: extension UI is visible, but native-host-not-found prevents acknowledgement. Registry/configuration/stdio checks pass. Browser restart retry was stopped by the UI tool; see TEST-EVIDENCE.md.
+- [ ] New media/updater UI click-through, real optional capture permissions, clean-machine installation and trusted production update round trip.
+- [ ] Broader media codecs/HDR, named website extractors, complete Core/Extended gates and public distribution audit.
+
 ## Continuation instructions
 
-The current release preview includes recurring queue hours, desktop link import and editable folder rules, with 63 passing automated checks plus the scoped native evidence in Milestone 4. The global QA profile is now schema v4 with four completed generated files; its pre-upgrade v3 snapshot preserves the two earlier jobs. Keep that profile, its snapshots and all generated files intact. QA folder preferences were restored and its queue was stopped. The isolated `.local/installation-smoke` installation had already been uninstalled with preservation verified in the previous milestone.
+The current code implements the scoped browser/media/updater layers above. Read MEDIA.md, UPDATES.md, BROWSER-HANDOFF.md, FEATURES.md and TEST-EVIDENCE.md before making support claims. The global QA profile is schema v5 with four completed earlier jobs, no successful browser handoff and a valid v4 backup. Preserve it and all download/snapshot files. The host registration points at target/release/idmxl.exe; its QA download folder is .local/browser-qa.
 
-The source launcher prefers the release checkout build, now paired with the freshly built engine even after a bundle build. The new release was checked in the native UI; final displayed paths omit the Windows extended-path prefix. Exported unsigned installer, inventory, notices, workflow guide and evidence are in `outputs/IDMXL-Preview`. Application checkpoint `8bdda2f` plus validation correction `64c2b90` passed [Windows CI run 38857665150](https://github.com/GeniusDevam/IDMXL/actions/runs/38857665150), including the full fixture/frontend stage and native desktop checks. Tray-menu click-through remains skipped at the user's request; the folder picker's child-control cache limitation is recorded in TEST-EVIDENCE.md.
+Run scripts/test.ps1 -Faults -Protocols -Media before recovery changes. The controlled helper recipe and matching source/notices ship with the installer; the separate fixture encoder and Python do not. Preview update checks are offline until the owner provides the certificate, metadata key and HTTPS hosting. Do not invent production credentials or mark the trusted-update round trip passed.
 
-The first workflow CI run `38856162109` failed the timing-sensitive active-range window fixture. The fixture now holds later ranges unfinished until the intermediate queue stop is observed, keeping the original state/hash assertions and adding an exact first-checkpoint assertion. Ten consecutive stress runs, the complete local 63-case rerun and the fresh Windows CI all passed. Runtime code and the packaged installer are unchanged by this fixture correction.
-
-Read `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/WORKFLOWS.md`, `docs/TEST-EVIDENCE.md` and `docs/RELEASE-CHECKLIST.md`. Run `scripts/test.ps1 -Faults -Protocols` before changing recovery behavior. Keep secret URLs on stdin and preserve redacted JSON. Next priorities are real Edge qualification, default/UI adaptive integration, durable retry accounting, clean-machine upgrade/update recovery and remaining Core workflows, followed by the scoped Media release. Do not claim Core/Media/Extended complete while their unchecked work remains.
-
+Next qualification is real Edge native-host discovery, then explicit/capture/media handoff and native media/update UI. Interface automation stopped because the browser URL could not be verified confidently. The previous tray-menu check was deliberately skipped. Full IDM parity and the remaining feature-matrix gates are not complete.

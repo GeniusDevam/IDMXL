@@ -28,10 +28,19 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "externalBin": ["binaries/idmxl"],
-    "resources": {"../../../extensions/edge/": "browser-extension/", "../../../scripts/browser-host.ps1":"browser-host.ps1", "../../../docs/BROWSER-HANDOFF.md":"BROWSER-HANDOFF.md"},
+    "resources": {
+      "media/": "media/",
+      "../../../extensions/edge/": "browser-extension/",
+      "../../../scripts/browser-host.ps1": "browser-host.ps1",
+      "../../../docs/BROWSER-HANDOFF.md": "BROWSER-HANDOFF.md"
+    },
     "windows": {
-      "nsis": {"installMode":"currentUser","languages":["English"],"displayLanguageSelector":false},
-      "webviewInstallMode": {"type":"downloadBootstrapper","silent":true}
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
     }
   }
 }

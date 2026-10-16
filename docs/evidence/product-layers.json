@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-16",
+  "automated": {
+    "rust_passed": 29,
+    "python_passed": 49,
+    "python_optional_large_file_skipped": 1,
+    "python_seconds": 214.298,
+    "node_passed": 8,
+    "total_passed_this_run": 86,
+    "native_clippy": "passed",
+    "rust_format": "passed",
+    "frontend": "passed",
+    "release_nsis_build": "passed",
+    "release_script_syntax": "passed"
+  },
+  "media": {
+    "original_8k_video_packet_hash": "passed",
+    "separate_pcm_samples": "passed",
+    "hls_aac_payload_ranges_audio_only": "passed",
+    "dash_aac_fmp4_payload": "passed",
+    "changed_source_rejected": "passed",
+    "pause_restart": "passed",
+    "publication_recovery": "passed",
+    "hdr_and_broader_codec_matrix": "pending",
+    "helper_resource_limits": "implemented; not a full sandbox"
+  },
+  "browser": {
+    "extension_visible_in_edge": true,
+    "native_stdio_status": "passed",
+    "real_explicit_handoff": "failed: native host not found",
+    "durable_handoffs_created": 0,
+    "restart_retry": "UI tool stopped on Escape, then could not determine browser URL",
+    "automatic_capture_and_media_ui": "not qualified",
+    "browser_security_settings_automated": false
+  },
+  "global_profile": {
+    "schema": 5,
+    "integrity": "ok",
+    "previous_completed_jobs": 4,
+    "v4_backup_count": 1
+  },
+  "updates": {
+    "metadata_signature_freshness_replay": "passed",
+    "paired_recovery_and_tamper_checks": "passed",
+    "unsigned_installer_rejected": "passed",
+    "production_configured": false,
+    "trusted_production_install_round_trip": "pending owner setup"
+  },
+  "inventory": {
+    "components": 370,
+    "notices": 545,
+    "missing_root_notice_review": 44,
+    "cyclonedx_1_6_schema_errors": 0
+  }
+}

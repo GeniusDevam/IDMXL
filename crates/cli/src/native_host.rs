@@ -20,8 +20,15 @@ struct Request {
     version: u8,
     kind: String,
     request_id: String,
-    url: String,
+    url: Option<String>,
     filename: Option<String>,
+    etag: Option<String>,
+    total: Option<String>,
+    browser_cancelled: Option<bool>,
+    selection: Option<String>,
+    audio_selection: Option<String>,
+    container: Option<String>,
+    audio_only: Option<bool>,
 }
 
 fn safe_name(name: Option<&str>) -> String {
@@ -95,14 +102,105 @@ pub fn serve(origin: &str) -> Result<()> {
     while let Some(frame) = read_frame(&mut input)? {
         let result = (|| -> Result<serde_json::Value> {
             let request: Request = serde_json::from_slice(&frame).context("invalid_message")?;
-            if request.version != 1 || request.kind != "enqueue" {
+            if !(request.version == 1 && request.kind == "enqueue"
+                || request.version == 2
+                    && matches!(
+                        request.kind.as_str(),
+                        "prepare" | "status" | "commit" | "abort"
+                    )
+                || request.version == 3
+                    && matches!(request.kind.as_str(), "media_inspect" | "media_enqueue"))
+            {
                 bail!("unsupported_message");
             }
             let id = uuid::Uuid::parse_str(&request.request_id).context("invalid_request_id")?;
+            if request.version == 3 {
+                if request.etag.is_some()
+                    || request.total.is_some()
+                    || request.browser_cancelled.is_some()
+                {
+                    bail!("invalid_message");
+                }
+                let url = request.url.context("invalid_message")?;
+                if request.kind == "media_inspect" {
+                    let inspection = idmxl_engine::manifests::discover(&url, true)?.view();
+                    return Ok(
+                        serde_json::json!({"version":3,"accepted":true,"request_id":id.to_string(),"inspection":inspection}),
+                    );
+                }
+                let container = request.container.context("invalid_message")?;
+                if !["mp4", "mkv", "webm", "mov", "m4a", "mp3", "wav", "ogg"]
+                    .contains(&container.as_str())
+                {
+                    bail!("invalid_message");
+                }
+                let name = format!(
+                    "{id}-{}.{}",
+                    safe_name(request.filename.as_deref()),
+                    container
+                );
+                let job = store.add_media_handoff(
+                    idmxl_engine::media::MediaRequest {
+                        url,
+                        selection: request.selection.context("invalid_message")?,
+                        audio_selection: request.audio_selection,
+                        audio_url: None,
+                        destination: directory.join(name),
+                        container,
+                        audio_only: request.audio_only.unwrap_or(false),
+                    },
+                    &id.to_string(),
+                )?;
+                return Ok(
+                    serde_json::json!({"version":3,"accepted":true,"request_id":id.to_string(),"job_id":job.id}),
+                );
+            }
+            if request.selection.is_some()
+                || request.audio_selection.is_some()
+                || request.container.is_some()
+                || request.audio_only.is_some()
+            {
+                bail!("invalid_message");
+            }
+            if request.version == 2 {
+                let status = match request.kind.as_str() {
+                    "prepare" => store.prepare_capture(
+                        &id.to_string(),
+                        request.url.as_deref().context("invalid_message")?,
+                        &safe_name(request.filename.as_deref()),
+                        &directory,
+                        request.etag.as_deref().context("invalid_message")?,
+                        request
+                            .total
+                            .as_deref()
+                            .context("invalid_message")?
+                            .parse()
+                            .context("invalid_message")?,
+                    )?,
+                    "status" => store.capture_status(&id.to_string())?,
+                    "commit" => {
+                        if request.browser_cancelled != Some(true) {
+                            bail!("cancellation_not_confirmed");
+                        }
+                        store.commit_capture(&id.to_string())?
+                    }
+                    "abort" => store.abort_capture(&id.to_string())?,
+                    _ => unreachable!(),
+                };
+                return Ok(
+                    serde_json::json!({"version":2,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"phase":status.phase,"expires":status.expires}),
+                );
+            }
+            if request.etag.is_some()
+                || request.total.is_some()
+                || request.browser_cancelled.is_some()
+            {
+                bail!("invalid_message");
+            }
             let name = format!("{}-{}", id, safe_name(request.filename.as_deref()));
             let job = store.add_handoff(
                 AddJob {
-                    url: request.url,
+                    url: request.url.context("invalid_message")?,
                     destination: directory.join(name),
                     replayable: false,
                     expected_sha256: None,
@@ -126,11 +224,24 @@ pub fn serve(origin: &str) -> Result<()> {
                     "invalid_url",
                     "unsupported_url_scheme",
                     "credentials_in_url_unsupported",
+                    "capture_ineligible",
+                    "capture_identity_mismatch",
+                    "handoff_not_found",
+                    "handoff_not_ready",
+                    "handoff_aborted",
+                    "handoff_already_committed",
+                    "cancellation_not_confirmed",
+                    "private_network_blocked",
                 ];
                 serde_json::json!({"version":1,"accepted":false,"error":if known.contains(&code.as_str()){code.as_str()}else{"handoff_rejected"}})
             }
         };
-        let encoded = serde_json::to_vec(&reply)?;
+        let mut encoded = serde_json::to_vec(&reply)?;
+        if encoded.len() > MAX_FRAME {
+            encoded = serde_json::to_vec(
+                &serde_json::json!({"accepted":false,"error":"response_too_large"}),
+            )?;
+        }
         output.write_all(&(encoded.len() as u32).to_ne_bytes())?;
         output.write_all(&encoded)?;
         output.flush()?;

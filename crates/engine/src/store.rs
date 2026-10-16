@@ -15,12 +15,20 @@ use crate::{
 pub struct Store {
     pub(crate) db: Connection,
     pub directory: PathBuf,
+    _maintenance: std::fs::File,
 }
 
 impl Store {
     pub fn open(directory: &Path) -> Result<Self> {
         std::fs::create_dir_all(directory)?;
         let directory = directory.canonicalize()?;
+        let maintenance = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(directory.join("maintenance.lock"))?;
+        fs2::FileExt::try_lock_shared(&maintenance).context("update_in_progress")?;
         let migration_lock = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -34,10 +42,10 @@ impl Store {
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
         let version: u32 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > 4 {
+        if version > 5 {
             bail!("database_version_unsupported");
         }
-        let idle_locks = if version > 0 && version < 4 {
+        let idle_locks = if version > 0 && version < 5 {
             let mut locks = Vec::new();
             for name in ["engine.lock", "scheduler.lock"] {
                 let lock = std::fs::OpenOptions::new()
@@ -106,31 +114,47 @@ impl Store {
             }
             db.execute_batch(include_str!("../migrations/004_workflows.sql"))?;
         }
+        if version < 5 {
+            if version == 4 {
+                let backup = directory.join(format!("jobs-v4-{}.sqlite", Uuid::new_v4()));
+                db.execute(
+                    "VACUUM INTO ?1",
+                    [backup.to_str().context("non_unicode_path")?],
+                )?;
+            }
+            db.execute_batch(include_str!("../migrations/005_product_layers.sql"))?;
+        }
         drop(idle_locks);
-        Ok(Self { db, directory })
+        Ok(Self {
+            db,
+            directory,
+            _maintenance: maintenance,
+        })
     }
 
     pub fn add(&self, request: AddJob) -> Result<JobView> {
-        self.insert(request, None, false, "Default")
+        self.insert(request, None, false, "Default", None, None)
     }
 
     pub(crate) fn add_generated(&self, request: AddJob, queue: &str) -> Result<JobView> {
-        self.insert(request, None, true, queue)
+        self.insert(request, None, true, queue, None, None)
     }
 
     pub fn add_handoff(&self, request: AddJob, request_id: &str) -> Result<JobView> {
         if Uuid::parse_str(request_id).is_err() {
             bail!("invalid_request_id");
         }
-        self.insert(request, Some(request_id), false, "Default")
+        self.insert(request, Some(request_id), false, "Default", None, None)
     }
 
-    fn insert(
+    pub(crate) fn insert(
         &self,
         request: AddJob,
         handoff: Option<&str>,
         unique: bool,
         queue: &str,
+        capture: Option<(&str, u64, i64)>,
+        initial: Option<&str>,
     ) -> Result<JobView> {
         let queue = crate::workflows::checked_queue_name(queue)?;
         let url = platform::checked_url(&request.url)?;
@@ -231,6 +255,22 @@ impl Store {
                 params![request_id, id],
             )?;
             transaction.execute("UPDATE jobs SET public_only=1 WHERE id=?1", [&id])?;
+            if let Some((etag, total, expires)) = capture {
+                transaction.execute(
+                    "INSERT INTO capture_handoffs VALUES(?1,'ready',?2,?3,?4)",
+                    params![request_id, expires, etag, total],
+                )?;
+                transaction.execute(
+                    "UPDATE jobs SET state='awaiting_browser',requested='paused' WHERE id=?1",
+                    [&id],
+                )?;
+            }
+        }
+        if let Some(state) = initial {
+            transaction.execute(
+                "UPDATE jobs SET state=?2,requested='paused' WHERE id=?1",
+                params![id, state],
+            )?;
         }
         transaction.commit()?;
         self.view(&id)
@@ -286,17 +326,21 @@ impl Store {
     pub fn list(&self) -> Result<Vec<JobView>> {
         let mut statement = self
             .db
-            .prepare("SELECT id FROM jobs ORDER BY created DESC,rowid DESC LIMIT 1000")?;
+            .prepare("SELECT id FROM jobs WHERE state!='media_component' AND id NOT IN (SELECT job_id FROM media_components) ORDER BY created DESC,rowid DESC LIMIT 1000")?;
         let ids = statement
             .query_map([], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.iter().map(|id| self.view(id)).collect()
     }
     pub fn request(&self, id: &str, action: &str) -> Result<JobView> {
+        self.capture_runnable(id)?;
         if !matches!(action, "paused" | "canceled" | "queued") {
             bail!("invalid_control_action");
         }
         let job = self.get(id)?;
+        if job.state == "preparing_media" && action != "canceled" {
+            bail!("media_preparation_incomplete");
+        }
         if matches!(job.state.as_str(), "completed" | "publishing" | "canceled")
             || action == "queued"
                 && matches!(job.state.as_str(), "downloading" | "pausing" | "verifying")
@@ -551,7 +595,7 @@ mod tests {
                 expected_sha256: None,
             })
             .unwrap();
-        store.db.execute_batch("DROP TABLE queue_windows; DROP INDEX jobs_destination_lookup; PRAGMA user_version=3;").unwrap();
+        store.db.execute_batch("DROP TABLE media_components; DROP TABLE media_jobs; DROP TABLE capture_handoffs; DROP TABLE queue_windows; DROP INDEX jobs_destination_lookup; PRAGMA user_version=3;").unwrap();
         drop(store);
         let lock = std::fs::OpenOptions::new()
             .create(true)
@@ -576,7 +620,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            4
+            5
         );
         let path = std::fs::read_dir(root.path())
             .unwrap()
@@ -630,7 +674,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            4
+            5
         );
         let backup = std::fs::read_dir(root.path())
             .unwrap()

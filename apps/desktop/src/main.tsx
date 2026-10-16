@@ -5,6 +5,8 @@ import { save } from "@tauri-apps/plugin-dialog";
 import "./styles.css";
 import { ImportLinks, QueueHours } from "./workflows";
 import { displayPath } from "./paths";
+import { MediaDialog, MediaDetails } from "./media";
+import { Updates } from "./updates";
 
 type Job = {
   id: string;
@@ -19,7 +21,7 @@ type Job = {
   speed_bytes_per_second: string;
   eta_seconds: string | null;
   policy: Policy;
-  retry_not_before: string|null;
+  retry_not_before: string | null;
   mode: string;
   replayable: boolean;
   sha256: string | null;
@@ -27,7 +29,15 @@ type Job = {
   file_available: boolean;
   queue_window_open: boolean;
 };
-type Policy = {queue_name:string;priority:number;not_before:number;deadline:number|null;connections:number;retries:number;speed_limit:number};
+type Policy = {
+  queue_name: string;
+  priority: number;
+  not_before: number;
+  deadline: number | null;
+  connections: number;
+  retries: number;
+  speed_limit: number;
+};
 type Filter = "all" | "active" | "completed";
 const activeStates = new Set(["downloading", "pausing", "verifying"]);
 const native = isTauri();
@@ -131,6 +141,7 @@ function App() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
   const [url, setUrl] = useState("");
   const [destination, setDestination] = useState("");
   const [digest, setDigest] = useState("");
@@ -142,8 +153,10 @@ function App() {
   const [queueRunning, setQueueRunning] = useState(false);
   const [queueLimit, setQueueLimit] = useState("0");
   const queueSettingsLoaded = useRef(false);
-  const [policyDraft, setPolicyDraft] = useState<Policy|null>(null);
-  const [theme, setTheme] = useState(localStorage.getItem("idmxl-theme") || "system");
+  const [policyDraft, setPolicyDraft] = useState<Policy | null>(null);
+  const [theme, setTheme] = useState(
+    localStorage.getItem("idmxl-theme") || "system",
+  );
   const modalRef = useRef<HTMLDialogElement>(null);
   const oldFocus = useRef<HTMLElement | null>(null);
 
@@ -151,9 +164,14 @@ function App() {
     if (!native) return;
     try {
       setJobs(await invoke<Job[]>("list_jobs"));
-      const status = await invoke<{running:boolean;speed_limit:string}>("queue_status");
+      const status = await invoke<{ running: boolean; speed_limit: string }>(
+        "queue_status",
+      );
       setQueueRunning(status.running);
-      if (!queueSettingsLoaded.current) {setQueueLimit(status.speed_limit);queueSettingsLoaded.current=true;}
+      if (!queueSettingsLoaded.current) {
+        setQueueLimit(status.speed_limit);
+        queueSettingsLoaded.current = true;
+      }
     } catch {
       setError(
         "The download history could not be read. Check that the app can access its data folder.",
@@ -180,18 +198,24 @@ function App() {
   }, [form]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("idmxl-theme",theme);
-  },[theme]);
+    localStorage.setItem("idmxl-theme", theme);
+  }, [theme]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key.toLowerCase() === "n") { event.preventDefault(); if (native && !document.querySelector("dialog[open]")) setForm(true); }
+      if (event.ctrlKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        if (native && !document.querySelector("dialog[open]")) setForm(true);
+      }
     };
-    window.addEventListener("keydown",key); return () => window.removeEventListener("keydown",key);
-  },[]);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
   useEffect(() => {
     if (selected) setSelected(jobs.find((j) => j.id === selected.id) ?? null);
   }, [jobs]);
-  useEffect(() => { setPolicyDraft(selected?.policy ?? null); },[selected?.id]);
+  useEffect(() => {
+    setPolicyDraft(selected?.policy ?? null);
+  }, [selected?.id]);
 
   const active = jobs.filter((j) => activeStates.has(j.state));
   const completed = jobs.filter((j) => j.state === "completed");
@@ -211,7 +235,10 @@ function App() {
       `${j.name} ${j.source}`.toLowerCase().includes(search.toLowerCase()),
   );
 
-  async function action(job: Job, kind: "start" | "pause" | "cancel" | "queue") {
+  async function action(
+    job: Job,
+    kind: "start" | "pause" | "cancel" | "queue",
+  ) {
     setWorking(job.id);
     setError("");
     try {
@@ -219,7 +246,15 @@ function App() {
         kind === "start" ? "start_job" : "control_job",
         kind === "start"
           ? { id: job.id }
-          : { id: job.id, action: kind === "pause" ? "paused" : kind === "queue" ? "queued" : "canceled" },
+          : {
+              id: job.id,
+              action:
+                kind === "pause"
+                  ? "paused"
+                  : kind === "queue"
+                    ? "queued"
+                    : "canceled",
+            },
       );
       await refresh();
     } catch (e) {
@@ -335,8 +370,28 @@ function App() {
               <p>Pick up where you left off.</p>
             </div>
             <div className="heading-actions">
-              <button className="secondary" disabled={!native} onClick={() => setShowImport(true)}>Import links</button>
-              <button className="primary" disabled={!native} onClick={() => setForm(true)}><Icon name="plus" />New download</button>
+              <button
+                className="secondary"
+                disabled={!native}
+                onClick={() => setShowMedia(true)}
+              >
+                Download media
+              </button>
+              <button
+                className="secondary"
+                disabled={!native}
+                onClick={() => setShowImport(true)}
+              >
+                Import links
+              </button>
+              <button
+                className="primary"
+                disabled={!native}
+                onClick={() => setForm(true)}
+              >
+                <Icon name="plus" />
+                New download
+              </button>
             </div>
           </section>
           {!native && (
@@ -366,14 +421,16 @@ function App() {
                 This preview supports HTTP and HTTPS file downloads, verified
                 checkpoints, pause/resume and SHA-256 checks. One file runs at a
                 time, with named queues and scheduled starts. Browser handoff
-                needs the separate extension setup. Media downloading and signed
-                automatic updates are still in development.
+                needs the separate extension setup. Media downloads preserve
+                selected original tracks. Online updates need the release
+                owner's signing and hosting setup.
               </p>
               <small>
                 {caps
                   ? `libcurl ${caps.libcurl} · ${caps.tls} · ${caps.credential_storage}`
                   : "No account required. Your download history stays on this PC."}
               </small>
+              {native && <Updates formatError={friendly} />}
             </section>
           )}
           <section className="stats" aria-label="Download summary">
@@ -415,13 +472,49 @@ function App() {
           </section>
           <section className="download-panel" aria-labelledby="downloads-title">
             <div className="queue-toolbar">
-              <button className="secondary" disabled={!native || Boolean(working)} onClick={async () => {
-                try { await invoke("queue_control",{running:!queueRunning,speedLimit:queueRunning ? null : queueLimit}); await refresh(); }
-                catch(e) {setError(friendly(e));}
-              }}>{queueRunning ? "Pause queue" : "Start queue"}</button>
-              <label>Queue limit (bytes/s) <input type="number" min="0" max="10000000000" value={queueLimit} onChange={e=>setQueueLimit(e.target.value)} /></label>
-              <label>Theme <select value={theme} onChange={e=>setTheme(e.target.value)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-              <small>{queueRunning ? "Queue runs in the background" : "Queue stopped"}</small>
+              <button
+                className="secondary"
+                disabled={!native || Boolean(working)}
+                onClick={async () => {
+                  try {
+                    await invoke("queue_control", {
+                      running: !queueRunning,
+                      speedLimit: queueRunning ? null : queueLimit,
+                    });
+                    await refresh();
+                  } catch (e) {
+                    setError(friendly(e));
+                  }
+                }}
+              >
+                {queueRunning ? "Pause queue" : "Start queue"}
+              </button>
+              <label>
+                Queue limit (bytes/s){" "}
+                <input
+                  type="number"
+                  min="0"
+                  max="10000000000"
+                  value={queueLimit}
+                  onChange={(e) => setQueueLimit(e.target.value)}
+                />
+              </label>
+              <label>
+                Theme{" "}
+                <select
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                >
+                  <option value="system">System</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </label>
+              <small>
+                {queueRunning
+                  ? "Queue runs in the background"
+                  : "Queue stopped"}
+              </small>
             </div>
             <div className="panel-toolbar">
               <h2 id="downloads-title">
@@ -477,23 +570,54 @@ function App() {
                       <div className="job-meta">
                         <span>
                           {bytes(job.received_bytes)} / {bytes(job.total_bytes)}
-                          {job.state === "downloading" && ` · ${bytes(job.speed_bytes_per_second)}/s${job.eta_seconds ? ` · ~${job.eta_seconds}s left` : ""}`}
+                          {job.state === "downloading" &&
+                            ` · ${bytes(job.speed_bytes_per_second)}/s${job.eta_seconds ? ` · ~${job.eta_seconds}s left` : ""}`}
                         </span>
                         <span className={`job-state ${job.state}`}>
                           {job.state === "completed" && !job.file_available
                             ? "File unavailable"
                             : job.state === "queued" && !job.queue_window_open
-                              ? "Waiting for queue hours" : job.state.replaceAll("_", " ")}
+                              ? "Waiting for queue hours"
+                              : job.state.replaceAll("_", " ")}
                         </span>
                       </div>
                       {job.error && (
                         <p className="job-error">{friendly(job.error)}</p>
                       )}
-                      {job.retry_not_before && <p className="job-error">Source retry available after {new Date(Number(job.retry_not_before)).toLocaleString()}</p>}
+                      {job.retry_not_before && (
+                        <p className="job-error">
+                          Source retry available after{" "}
+                          {new Date(
+                            Number(job.retry_not_before),
+                          ).toLocaleString()}
+                        </p>
+                      )}
                     </div>
                     <div className="job-actions">
-                      {["paused","failed"].includes(job.state) && <button className="icon-button" title="Add to automatic queue" aria-label={`Queue ${job.name}`} onClick={()=>void action(job,"queue")}><Icon name="plus" /></button>}
-                      {job.file_available && <button className="icon-button" title="Show in folder" aria-label={`Show ${job.name} in folder`} onClick={()=>void invoke("reveal_job",{id:job.id}).catch(e=>setError(friendly(e)))}><Icon name="folder" /></button>}
+                      {["paused", "failed"].includes(job.state) && (
+                        <button
+                          className="icon-button"
+                          title="Add to automatic queue"
+                          aria-label={`Queue ${job.name}`}
+                          onClick={() => void action(job, "queue")}
+                        >
+                          <Icon name="plus" />
+                        </button>
+                      )}
+                      {job.file_available && (
+                        <button
+                          className="icon-button"
+                          title="Show in folder"
+                          aria-label={`Show ${job.name} in folder`}
+                          onClick={() =>
+                            void invoke("reveal_job", { id: job.id }).catch(
+                              (e) => setError(friendly(e)),
+                            )
+                          }
+                        >
+                          <Icon name="folder" />
+                        </button>
+                      )}
                       {activeStates.has(job.state) ? (
                         <button
                           className="icon-button"
@@ -584,21 +708,122 @@ function App() {
           </section>
           {selected && (
             <section className="details">
-              {policyDraft && <form className="policy-form" onSubmit={async e=>{
-                e.preventDefault();
-                try {await invoke("set_policy",{id:selected.id,policy:policyDraft}); await refresh();}
-                catch(error){setError(friendly(error));}
-              }}>
-                <h3>Queue and schedule</h3>
-                <label>Queue name<input value={policyDraft.queue_name} maxLength={64} onChange={e=>setPolicyDraft({...policyDraft,queue_name:e.target.value})} /></label>
-                <label>Priority (-1000 to 1000)<input type="number" min="-1000" max="1000" value={policyDraft.priority} onChange={e=>setPolicyDraft({...policyDraft,priority:Number(e.target.value)})} /></label>
-                <label>Start after (local time)<input type="datetime-local" value={policyDraft.not_before ? new Date(policyDraft.not_before-new Date(policyDraft.not_before).getTimezoneOffset()*60000).toISOString().slice(0,16) : ""} onChange={e=>setPolicyDraft({...policyDraft,not_before:e.target.value ? new Date(e.target.value).getTime() : 0})} /></label>
-                <label>Connections<input type="number" min="1" max="4" value={policyDraft.connections} onChange={e=>setPolicyDraft({...policyDraft,connections:Number(e.target.value)})} /></label>
-                <label>Job limit (bytes/s; 0 unlimited)<input type="number" min="0" value={policyDraft.speed_limit} onChange={e=>setPolicyDraft({...policyDraft,speed_limit:Number(e.target.value)})} /></label>
-                <p>{bytes(selected.durable_bytes)} saved in verified checkpoints. Scheduled jobs run while the queue worker is running; missed start times run when next eligible.</p>
-                <button className="secondary" type="submit">Save schedule</button>
-              </form>}
-              <QueueHours queueName={selected.policy.queue_name} formatError={friendly} onSaved={() => void refresh()} />
+              {policyDraft && (
+                <form
+                  className="policy-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    try {
+                      await invoke("set_policy", {
+                        id: selected.id,
+                        policy: policyDraft,
+                      });
+                      await refresh();
+                    } catch (error) {
+                      setError(friendly(error));
+                    }
+                  }}
+                >
+                  <h3>Queue and schedule</h3>
+                  <label>
+                    Queue name
+                    <input
+                      value={policyDraft.queue_name}
+                      maxLength={64}
+                      onChange={(e) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          queue_name: e.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Priority (-1000 to 1000)
+                    <input
+                      type="number"
+                      min="-1000"
+                      max="1000"
+                      value={policyDraft.priority}
+                      onChange={(e) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          priority: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Start after (local time)
+                    <input
+                      type="datetime-local"
+                      value={
+                        policyDraft.not_before
+                          ? new Date(
+                              policyDraft.not_before -
+                                new Date(
+                                  policyDraft.not_before,
+                                ).getTimezoneOffset() *
+                                  60000,
+                            )
+                              .toISOString()
+                              .slice(0, 16)
+                          : ""
+                      }
+                      onChange={(e) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          not_before: e.target.value
+                            ? new Date(e.target.value).getTime()
+                            : 0,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Connections
+                    <input
+                      type="number"
+                      min="1"
+                      max="4"
+                      value={policyDraft.connections}
+                      onChange={(e) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          connections: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Job limit (bytes/s; 0 unlimited)
+                    <input
+                      type="number"
+                      min="0"
+                      value={policyDraft.speed_limit}
+                      onChange={(e) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          speed_limit: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <p>
+                    {bytes(selected.durable_bytes)} saved in verified
+                    checkpoints. Scheduled jobs run while the queue worker is
+                    running; missed start times run when next eligible.
+                  </p>
+                  <button className="secondary" type="submit">
+                    Save schedule
+                  </button>
+                </form>
+              )}
+              <QueueHours
+                queueName={selected.policy.queue_name}
+                formatError={friendly}
+                onSaved={() => void refresh()}
+              />
               <div>
                 <h2>Download details</h2>
                 <button
@@ -614,15 +839,18 @@ function App() {
                 <dd>{displayPath(selected.destination)}</dd>
                 <dt>Transfer</dt>
                 <dd>
-                  {selected.mode === "ranged"
-                    ? "Verified byte ranges"
-                    : "Single stream"}
+                  {selected.mode === "media"
+                    ? "Original media tracks with local assembly"
+                    : selected.mode === "ranged"
+                      ? "Verified byte ranges"
+                      : "Single stream"}
                 </dd>
                 <dt>SHA-256</dt>
                 <dd>{selected.sha256 || "Available after verification"}</dd>
                 <dt>Job</dt>
                 <dd>{selected.id}</dd>
               </dl>
+              {selected.mode === "media" && <MediaDetails id={selected.id} />}
             </section>
           )}
           <footer className="page-footer">
@@ -732,7 +960,18 @@ function App() {
           </div>
         </form>
       </dialog>
-      <ImportLinks visible={showImport} onClose={() => setShowImport(false)} onAdded={() => void refresh()} formatError={friendly} />
+      <ImportLinks
+        visible={showImport}
+        onClose={() => setShowImport(false)}
+        onAdded={() => void refresh()}
+        formatError={friendly}
+      />
+      <MediaDialog
+        visible={showMedia}
+        onClose={() => setShowMedia(false)}
+        onAdded={() => void refresh()}
+        formatError={friendly}
+      />
     </div>
   );
 }
@@ -740,17 +979,60 @@ function App() {
 function friendly(error: unknown): string {
   const code = String(error).replace(/^Error:\s*/, "");
   const messages: Record<string, string> = {
+    update_in_progress:
+      "An update is being prepared. Wait for IDMXL to restart.",
+    update_requires_idle_app:
+      "Another IDMXL process is still using the profile. Pause downloads and close other IDMXL windows, then try again.",
+    invalid_update_signature:
+      "The update signature could not be verified. Nothing has been installed.",
+    update_rollback_rejected:
+      "The update metadata is older than a release this app has already verified.",
+    update_metadata_expired_or_clock_invalid:
+      "The release information has expired, or this PC's clock is incorrect. Check the date and try again later.",
+    signature_verification_failed:
+      "Windows did not validate the expected publisher's signature. The update has not been installed.",
+    media_helper_missing:
+      "The media tools are missing. Install the complete IDMXL package.",
+    media_helper_untrusted:
+      "The media tools did not match this app version. Reinstall the complete package.",
+    media_selection_changed:
+      "The available tracks changed. Find the tracks again and select the exact format.",
+    media_audio_selection_required:
+      "Choose a separate audio track for this video rendition.",
+    media_audio_group_mismatch:
+      "That audio track belongs to a different video group. Choose its matching track.",
+    media_extension_mismatch:
+      "The filename extension must match the selected output container.",
+    unsupported_media_protection_or_timeline:
+      "This stream uses encryption or a timeline feature that IDMXL does not support.",
+    unsupported_media_protection_or_addressing:
+      "This stream uses protection or segment addressing that IDMXL does not support.",
+    live_media_unsupported:
+      "Live streams are not supported. Use a finished video-on-demand stream.",
+    media_verification_failed:
+      "The assembled media did not preserve the selected tracks or quality. The source tracks have been kept.",
+    media_helper_failed:
+      "The media could not be combined without conversion. Try a compatible output container.",
+    browser_handoff_pending:
+      "The browser handoff has not been committed. Keep this download in the browser until it finishes.",
     destination_exists:
       "A file already exists at that location. Choose a different name.",
-    destination_in_use: "Another download already uses that filename. Choose a different name.",
+    destination_in_use:
+      "Another download already uses that filename. Choose a different name.",
     invalid_queue_name: "Enter a queue name of up to 64 characters.",
-    invalid_queue_window: "Select at least one weekday and valid start and end times.",
-    invalid_folder_settings: "Choose an existing download folder and up to 20 folder rules.",
-    invalid_folder_rule: "Use unique folder names and file extensions. Folder names cannot contain paths or reserved Windows names.",
-    category_folder_unavailable: "A category folder could not be used. Choose another folder or turn off organization.",
+    invalid_queue_window:
+      "Select at least one weekday and valid start and end times.",
+    invalid_folder_settings:
+      "Choose an existing download folder and up to 20 folder rules.",
+    invalid_folder_rule:
+      "Use unique folder names and file extensions. Folder names cannot contain paths or reserved Windows names.",
+    category_folder_unavailable:
+      "A category folder could not be used. Choose another folder or turn off organization.",
     invalid_batch_size: "Enter between 1 and 1,000 links, up to 1 MB in total.",
-    download_could_not_be_added: "This download could not be added. Check the folder and link.",
-    no_available_filename: "No free filename could be chosen. Use another folder.",
+    download_could_not_be_added:
+      "This download could not be added. Check the folder and link.",
+    no_available_filename:
+      "No free filename could be chosen. Use another folder.",
     url_too_large: "This file link is too long.",
     destination_folder_missing:
       "That folder does not exist. Choose an existing folder.",
@@ -765,9 +1047,12 @@ function friendly(error: unknown): string {
     digest_mismatch:
       "The file did not match the expected SHA-256. It has not been published.",
     server_throttled: "The server asked us to wait. Try this download later.",
-    server_retry_pending: "The source is cooling down as requested by its server. Queued jobs wait until that deadline.",
-    private_network_blocked: "Browser handoffs can reach public internet addresses only. Add an intranet link directly in the app if intended.",
-    invalid_queue_policy: "Check the queue name, times, connection count, priority and speed limit.",
+    server_retry_pending:
+      "The source is cooling down as requested by its server. Queued jobs wait until that deadline.",
+    private_network_blocked:
+      "Browser handoffs can reach public internet addresses only. Add an intranet link directly in the app if intended.",
+    invalid_queue_policy:
+      "Check the queue name, times, connection count, priority and speed limit.",
     interrupted: "The previous session ended. Resume to verify and continue.",
     publication_failed:
       "The final file could not be saved. Check its destination and try again.",

@@ -107,7 +107,15 @@ impl Engine {
             .open(self.store.directory.join("engine.lock"))?;
         fs2::FileExt::try_lock_exclusive(&lock).context("engine_busy")?;
         self.store.recover_active()?;
+        self.run_locked(id, options)
+    }
+
+    pub(crate) fn run_locked(&self, id: &str, options: RunOptions) -> Result<JobView> {
         let job = self.store.get(id)?;
+        self.store.capture_runnable(id)?;
+        if job.state == "preparing_media" {
+            bail!("media_preparation_incomplete");
+        }
         if job.state == "completed" {
             return self.store.view(id);
         }
@@ -164,6 +172,14 @@ impl Engine {
                     "transfer_interrupted",
                     "private_network_blocked",
                     "dns_resolution_failed",
+                    "media_helper_missing",
+                    "media_helper_untrusted",
+                    "media_helper_failed",
+                    "media_verification_failed",
+                    "media_workspace_changed",
+                    "media_component_failed",
+                    "media_helper_timeout",
+                    "media_helper_output_too_large",
                 ];
                 let code = if known.contains(&safe) {
                     safe
@@ -191,6 +207,9 @@ impl Engine {
     }
 
     fn transfer(&self, id: &str, options: &RunOptions) -> Result<()> {
+        if self.store.is_media(id)? {
+            return crate::media::execute(self, id, options);
+        }
         let mut job = self.store.get(id)?;
         if job.destination.exists() {
             bail!("destination_exists");
@@ -204,6 +223,7 @@ impl Engine {
         } else {
             None
         };
+        self.store.capture_identity(id, probe.as_ref())?;
         let ranged = probe.as_ref().is_some_and(|p| p.ranged);
         let resolved = probe
             .as_ref()

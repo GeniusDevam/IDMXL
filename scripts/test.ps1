@@ -1,8 +1,16 @@
-param([switch]$Faults, [switch]$Protocols)
+param([switch]$Faults, [switch]$Protocols,[switch]$Media,[string]$MediaBuildDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'tools.ps1')
 Initialize-IDMXLTools
+if ($Media) {
+    if (-not $MediaBuildDirectory) { $MediaBuildDirectory=Join-Path $repo '..\..\work\media-build' }
+    & (Join-Path $PSScriptRoot 'media-build.ps1') -BuildDirectory $MediaBuildDirectory
+    if (-not (Test-Path -LiteralPath (Join-Path $MediaBuildDirectory 'fixture-encoder\ffmpeg.exe'))) { & (Join-Path $PSScriptRoot 'media-fixture-build.ps1') -BuildDirectory $MediaBuildDirectory }
+    $env:IDMXL_FIXTURE_ENCODER=Join-Path $MediaBuildDirectory 'fixture-encoder\ffmpeg.exe'
+    . (Join-Path $PSScriptRoot 'stage-media.ps1') -BuildDirectory $MediaBuildDirectory
+    $env:IDMXL_REQUIRE_MEDIA_TESTS='1'
+}
 Push-Location $repo
 try {
     cargo fmt --all -- --check
@@ -27,7 +35,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'CLI build failed.' }
     python -m unittest discover -s tests -v
     if ($LASTEXITCODE -ne 0) { throw 'HTTP fixture tests failed.' }
-    node --test extensions/edge/background.test.cjs
+    node --test extensions/edge/background.test.cjs extensions/edge/capture.test.cjs
     if ($LASTEXITCODE -ne 0) { throw 'Extension behavior tests failed.' }
     if (-not (Test-Path -LiteralPath 'apps\desktop\node_modules')) {
         npm.cmd --prefix apps/desktop ci --no-audit --no-fund
@@ -38,5 +46,6 @@ try {
 } finally {
     Remove-Item Env:IDMXL_FAULT_EXE -ErrorAction SilentlyContinue
     Remove-Item Env:IDMXL_PROTOCOL_TESTS -ErrorAction SilentlyContinue
+    Remove-Item Env:IDMXL_REQUIRE_MEDIA_TESTS -ErrorAction SilentlyContinue
     Pop-Location
 }

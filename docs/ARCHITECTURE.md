@@ -66,3 +66,15 @@ Import links uses the engine's URL validator, DPAPI storage and no-overwrite pub
 
 The whole input and each queue/rule are bounded. Per-entry results omit secret source tokens. Accepted input lines are removed in the desktop before a correction can resubmit them. A repeat desktop/CLI import remains an explicit new import rather than the durable idempotent browser-host protocol. Folder preferences contain no source URLs. Migrations require both the engine and scheduler to be idle; a v3 snapshot is retained before v4 changes.
 
+
+## ADR-012: held browser ownership transfer
+
+Schema v5 records browser capture phases and expiring preparation. A held job is excluded from every ordinary run path. Preparation independently verifies public DNS and exact strong representation; commit requires confirmed browser cancellation. The extension journals redacted intent before each ownership transition and reconciles durable IDs after worker restart. Unsupported or ambiguous cases preserve browser ownership or request attention. Explicit links and selected media use the same bounded host with separate protocol versions.
+
+## ADR-013: media belongs to the existing engine
+
+A media parent stores a protected frozen plan and hidden component jobs. One engine lock spans download, verified local assembly and ordinary recoverable publication. Pause/queue limits use existing admission; byte-range sources are downloaded whole and sliced locally. Helpers accept no network or arbitrary options, have build-specific hashes and Windows process/resource limits, and stream-copy into a verified output. This is not a full Windows sandbox. Source tracks remain available on failure; wider codec/HDR and extractor qualification is independent.
+
+## ADR-014: release authority and paired recovery
+
+Preview builds have no update authority or network check. Production builds embed one HTTPS endpoint/artifact origin, Ed25519 metadata key and Authenticode publisher identity. Signed metadata binds product/channel/target/version, increasing sequence, freshness, hash and size; persisted high-water state rejects replay/equivocation. Installation validates publisher identity and takes an idle, integrity-checked database snapshot with matching old binaries. Recovery restores a separate profile from a protected receipt, preserving current history and downloads. Operator credentials/hosting and a real trusted upgrade rehearsal are external release gates.

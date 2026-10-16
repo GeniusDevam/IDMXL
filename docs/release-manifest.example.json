@@ -1,0 +1,13 @@
+{
+  "product":"dev.idmxl.desktop",
+  "channel":"stable",
+  "target":"windows-x86_64",
+  "version":"0.2.0",
+  "sequence":1,
+  "issued":0,
+  "expires":0,
+  "url":"https://updates.example.com/IDMXL_0.2.0_x64-setup.exe",
+  "sha256":"REPLACE_WITH_SIGNED_INSTALLER_SHA256",
+  "size":0,
+  "notes":"Describe the changes in this release."
+}

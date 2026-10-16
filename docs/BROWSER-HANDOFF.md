@@ -1,35 +1,37 @@
-# Explicit browser handoff (development)
+# Browser integration (development)
 
-The original Manifest V3 extension is in `extensions/edge`. It adds **Queue link in IDMXL** to the link context menu. It has context-menu, native-messaging and local-status storage permissions, with no page/content scripts, cookie access, host permissions, interception, or automatic browser cancellation. Only HTTP(S) GET file links without embedded username/password are accepted. A signed public URL can be handed off; an authenticated browser session is not transferred.
+Load `extensions/edge` unpacked in an Edge development profile and register its exact 32-letter ID. Extension installation, developer-mode changes and browser permission prompts are user setup steps. The installed application includes extension source and this guide. Store publication and Chrome qualification are separate work.
 
-The native host is the same `idmxl.exe`. Chromium passes its extension origin as the first argument. The host requires an exact configured origin. Version 1 messages use a native-endian unsigned 32-bit length followed by UTF-8 JSON, capped at 256 KiB. The only request is:
+## Connect the application
 
-```json
-{"version":1,"kind":"enqueue","request_id":"0f417bf1-a960-462a-a1af-62d427ee655d","url":"https://example.org/file.zip","filename":"file.zip"}
-```
-
-Unknown fields, versions, actions, oversized frames, truncated input and unapproved origins are rejected. The host chooses a UUID-prefixed safe filename inside the configured existing download folder; pages cannot choose an arbitrary local path. URLs remain DPAPI protected. A committed transaction creates the job and handoff ID before acceptance is acknowledged. Repeating an ID with the same source returns the same job; a different source is rejected. Jobs start with replay disabled. Nothing automatically cancels an existing browser transfer.
-
-Browser-origin jobs have a separate public-address policy. Every request and redirect validates all DNS answers and pins libcurl to that answer set. Loopback, private, link-local, mapped, multicast and selected special-use ranges are rejected. Proxies are disabled. A direct user-entered desktop/CLI URL can intentionally address an intranet server. This policy does not provide browser cookies, enterprise authentication or POST replay.
-
-## Local setup
-
-Build the engine first. Load `extensions/edge` unpacked in an appropriate Edge development profile, and copy the exact extension ID shown by Edge. Developer-mode/profile changes and extension installation are deliberate user setup steps. Store review and real-browser qualification remain separate gates.
-
-Prepare and inspect configuration without registry changes:
+Build the preview or use an installed copy. Create the download folder, then run:
 
 ```powershell
-.\scripts\browser-host.ps1 -Action Prepare -ExtensionId <32-letter-id> -DownloadDirectory C:\Downloads
+.\scripts\browser-host.ps1 -Action Install -ExtensionId <32-letter-id> -DownloadDirectory C:\Downloads -Executable <installed-folder>\idmxl.exe
 ```
 
-To register the inspected host for the current user:
+For a source checkout, pass `target\release\idmxl.exe`. `-Action Prepare` writes configuration without registering it and permits an isolated `-StateDirectory`. Actual registration uses the current user's `%LOCALAPPDATA%\IDMXL` profile. `-Browser Chrome` selects a separately qualified browser registration. Uninstall removes only that registration and preserves downloads/history. Choose **Check IDMXL connection** in the popup to diagnose a missing registration, rejected ID or startup failure. Restart the browser after setup if necessary.
 
-```powershell
-.\scripts\browser-host.ps1 -Action Install -ExtensionId <32-letter-id> -DownloadDirectory C:\Downloads
-```
+## Explicit file links
 
-For an installed release, supply `-Executable <installed-folder>\idmxl.exe`. Use `-Browser Chrome` only for separately tested Chrome setup. `Prepare` accepts a custom isolated `-StateDirectory`; actual Chromium registration uses `%LOCALAPPDATA%\IDMXL\browser-host.json`. Uninstall removes only the selected registry entry and preserves profile/downloads.
+Right-click a public file link and choose **Queue link in IDMXL**. A transaction records a durable handoff ID before acknowledgement. Repeating an ID with the same request returns the same job; a different request is rejected. Open IDMXL to start it, or leave its automatic queue running. This action does not cancel another browser download. Signed public links can be protected locally, but browser cookies and authentication are not transferred.
 
-The stdio round trip, durable duplicate handling and hostile protocol inputs have deterministic CLI fixtures. Extension behavior has a Node test using a mocked browser API. These checks do not establish a completed Edge UI installation, context-menu click-through or extension-store acceptance.
+## Optional public-file capture
 
-Primary platform references: [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), [context menus](https://developer.chrome.com/docs/extensions/reference/api/contextMenus).
+Capture is off by default. Enter an exact HTTPS folder URL ending in `/` under **Optional public-file capture**, then choose **Enable for this folder**. The user must grant the browser's optional downloads, webRequest and site permissions. The rule applies to that origin and directory prefix; **Turn capture off** removes the rules. Permission grants remain browser-managed.
+
+Only files of at least 1 MiB with an observed, unambiguous public GET, strong ETag and exact length are eligible. Private/incognito, cookie/authorization-bearing, tokenized, redirected, ranged, dangerous, compressed, unobserved or ambiguous transfers stay in the browser. Headers and URLs are not written to the capture recovery log. The engine independently checks the exact representation and public DNS addresses.
+
+The extension persists intent, pauses and verifies the browser transfer, prepares a held native job, then persists cancellation intent. It cancels the browser transfer only after preparation succeeds. Native commit requires confirmed browser cancellation. Before that point, failures resume the browser transfer and abort preparation. Lost acknowledgements and worker restarts query the same durable ID; ambiguous cases report attention. Expired preparation can be renewed only after an exact fresh identity check. Held jobs cannot be started through ordinary queue/CLI entry points.
+
+## Video and audio
+
+**Video and audio in this tab** inspects media elements only after a click. Choose a public source, inspect original tracks, select a rendition/audio and queue it. This uses activeTab/scripting; there is no automatic page script or universal site extractor. Blob players, browser-bound sessions and protected/live streams are unsupported. See [MEDIA.md](MEDIA.md).
+
+## Protocol and boundary
+
+The same `idmxl.exe` is the stdio native host. It requires an exact allowed extension origin, accepts bounded 256 KiB native-endian length-prefixed UTF-8 JSON, rejects unknown fields/actions and chooses safe names inside the configured folder. Version 1 enqueues explicit links; version 2 prepares/status-checks/commits/aborts capture; version 3 inspects and queues selected media. Pages cannot choose arbitrary local paths or command options. Sources/plans are DPAPI protected.
+
+Browser-origin requests validate all DNS answers on each request and redirect and pin transport to public addresses. Loopback/private/link-local/mapped/multicast/special-use addresses and environment proxies are rejected. Desktop/CLI input can intentionally address an intranet. No cookies, POST replay or enterprise sessions are transferred. Standard tests cover hostile frames, durable duplicate handling and capture failure/restart sequences; real-browser evidence and remaining qualification are in [TEST-EVIDENCE.md](TEST-EVIDENCE.md).
+
+Primary references: [Edge native messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging), [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), [optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions).
