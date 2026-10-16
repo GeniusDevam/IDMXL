@@ -12,6 +12,8 @@ The native folder picker opened and cancelled. Two attempts to address its edita
 
 The refreshed inventory still has 353 components, 516 collected root notices and 44 missing-root review entries. JSON schema validation against the official CycloneDX 1.6 BOM/SPDX/JSF schemas returned zero errors. It remains a development inventory, not a completed redistribution audit.
 
+Code checkpoint `8bdda2f` is pushed to the private repository. Its [fresh Windows validation run](https://github.com/GeniusDevam/IDMXL/actions/runs/38856162109) was in progress when saved; the local results above are complete, and this remote result is not claimed as passed yet.
+
 ## 15 October 2026: Windows x64 development machine
 
 Rust 1.99.0, MSVC Build Tools 2022, bundled libcurl reporting 8.22.0-DEV with Schannel and HTTP/2 capability, nghttp2 1.68.1 and SQLite. Exact versions are recorded in Cargo.lock. The official rustup installer was downloaded into a workspace-local tools directory; no global PATH changes were required.
