@@ -1,0 +1,9 @@
+{
+  "existing_windows_signature": "Valid",
+  "execution_policy": "existing RemoteSigned; no policy changed or bypass flag used",
+  "qualification": "verifier positive/negative cases only; not a production update installation",
+  "unsigned_installer": "rejected by automated fixture",
+  "correct_publisher_exit": 0,
+  "date": "2026-10-16",
+  "wrong_publisher_exit": 1
+}

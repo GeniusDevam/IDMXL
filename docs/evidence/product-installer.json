@@ -1,15 +1,15 @@
 {
-  "installed_helper_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
-  "qualification": "isolated development-machine resources and CLI; GUI/clean-machine/trusted update round trip not qualified",
-  "install_exit": 0,
-  "installation_directory_removed": true,
-  "uninstall_exit": 0,
-  "packaged_files_checked": 13,
-  "global_history_byte_identical_through_uninstall": true,
-  "uninstall_registry_removed": true,
-  "preview_updates_configured": false,
+  "installed_engine_version": "0.1.0",
   "desktop_match": "exact after only Tauri UNK to NSS three-byte marker patch",
-  "engine_helpers_exact_hash_match": true,
+  "installation_directory_removed": true,
+  "installer_sha256": "afddfb9d43df0230a6e603d0de48de21588aacec6cf3c01d2a98dd92102d5627",
+  "install_exit": 0,
   "date": "2026-10-16",
-  "installed_engine_version": "0.1.0"
+  "global_history_byte_identical": true,
+  "uninstall_exit": 0,
+  "qualification": "isolated development-machine resource and CLI smoke; GUI/clean-machine/trusted updater round trip not qualified",
+  "installed_helper_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "packaged_files_checked": 13,
+  "engine_helpers_exact_hash_match": true,
+  "preview_updates_configured": false
 }

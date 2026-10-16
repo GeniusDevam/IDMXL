@@ -21,7 +21,7 @@ Observed binary hashes identify this build; they are not a reproducible-build cl
 python scripts/media-experiment.py --helper-dir <build-folder>\remux --output .local\media-experiment
 ```
 
-The script generates one original 7680Ã—4320 RGB frame in a minimal MOV and stereo 48 kHz signed 16-bit PCM in WAV. It combines them into MOV using fixed `-c copy` arguments and a `file` protocol whitelist, then checks video geometry/codec, the encoded video packet SHA-256, and independently extracted audio samples. It passed on the development Windows x64 machine. The source is generated directly at 8K, with no upscaling or third-party media.
+The script generates one original 7680×4320 RGB frame in a minimal MOV and stereo 48 kHz signed 16-bit PCM in WAV. It combines them into MOV using fixed `-c copy` arguments and a `file` protocol whitelist, then checks video geometry/codec, the encoded video packet SHA-256, and independently extracted audio samples. It passed on the development Windows x64 machine. The source is generated directly at 8K, with no upscaling or third-party media.
 
 This qualifies only the stated MOV/RGB + WAV/PCM experiment. AV1/VP9/HEVC, MP4/WebM/MKV codec combinations, HDR metadata, adaptive manifests, format selection, helper lifecycle management and named extractor/site support remain Media-release work. The helper is deliberately not included in the Core installer. Its exact source, build recipe, notices and static compiler-runtime obligations must accompany a future helper distribution.
 

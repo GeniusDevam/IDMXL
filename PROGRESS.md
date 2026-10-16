@@ -2,6 +2,8 @@
 
 Updated 16 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
+Current checkpoint: [Milestone 5](#milestone-5-browser-media-and-updater-product-layers) implements scoped browser capture, media and updater layers. 87 distinct automated cases and the final package resource/CLI smoke pass. Real Edge handoff and production update qualification remain open. Earlier milestones below are historical records.
+
 ## Milestone 1: first working transfer engine
 
 - [x] New local Git repository and private `GeniusDevam/IDMXL` GitHub repository.
@@ -100,8 +102,9 @@ G5: add selected extended workflows from the full plan, with independent tests a
 - [x] Signed Ed25519 update metadata, freshness/high-water state, hash/size/origin and Windows publisher checks, idle paired snapshots and separate-profile recovery.
 - [x] Owner signing/hosting preparation scripts and UPDATES.md; production authority is deliberately unset because the owner has no certificate or endpoint yet.
 - [x] Schema v5 with idle v4 backup; prior four completed QA jobs/history remain intact.
-- [x] 86 automated cases passed: 29 Rust, 49 Python and 8 extension checks. Optional large-file case was not rerun. Native lint/build and NSIS packaging passed.
+- [x] 86 automated cases passed: 29 Rust, 49 Python and 8 extension checks. A separate final-release >4 GiB/397-character Unicode-path rerun also passed, giving 87 distinct cases in this checkpoint. Native lint/build and NSIS packaging passed.
 - [x] Isolated package-resource/CLI install and uninstall smoke passed; prior global history remained unchanged. New GUI and clean-machine qualification are separate.
+- [x] Runtime/build checkpoint `1885d6a` passed [fresh Windows CI](https://github.com/GeniusDevam/IDMXL/actions/runs/38889150575), including all fixture/frontend and native desktop checks.
 - [x] Updated 370-component inventory with 545 notices, 44 review entries and zero CycloneDX schema errors.
 - [ ] Real Edge transfer qualification: extension UI is visible, but native-host-not-found prevents acknowledgement. Registry/configuration/stdio checks pass. Browser restart retry was stopped by the UI tool; see TEST-EVIDENCE.md.
 - [ ] New media/updater UI click-through, real optional capture permissions, clean-machine installation and trusted production update round trip.
@@ -114,3 +117,5 @@ The current code implements the scoped browser/media/updater layers above. Read 
 Run scripts/test.ps1 -Faults -Protocols -Media before recovery changes. The controlled helper recipe and matching source/notices ship with the installer; the separate fixture encoder and Python do not. Preview update checks are offline until the owner provides the certificate, metadata key and HTTPS hosting. Do not invent production credentials or mark the trusted-update round trip passed.
 
 Next qualification is real Edge native-host discovery, then explicit/capture/media handoff and native media/update UI. Interface automation stopped because the browser URL could not be verified confidently. The previous tray-menu check was deliberately skipped. Full IDM parity and the remaining feature-matrix gates are not complete.
+
+Interface automation is limited to targeted checks; background builds and tests do not require desktop input. The automation session was closed after testing.

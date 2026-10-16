@@ -11,7 +11,10 @@
     "rust_format": "passed",
     "frontend": "passed",
     "release_nsis_build": "passed",
-    "release_script_syntax": "passed"
+    "release_script_syntax": "passed",
+    "final_metadata_sequence_guard": "29 Rust tests and engine Clippy rerun after rejecting sequence zero",
+    "separate_resource_case_passed": 1,
+    "total_distinct_passed_this_checkpoint": 87
   },
   "media": {
     "original_8k_video_packet_hash": "passed",
@@ -44,12 +47,29 @@
     "paired_recovery_and_tamper_checks": "passed",
     "unsigned_installer_rejected": "passed",
     "production_configured": false,
-    "trusted_production_install_round_trip": "pending owner setup"
+    "trusted_production_install_round_trip": "pending owner setup",
+    "publisher_positive_and_mismatch": "passed; update-publisher.json"
   },
   "inventory": {
     "components": 370,
     "notices": 545,
     "missing_root_notice_review": 44,
     "cyclonedx_1_6_schema_errors": 0
+  },
+  "build_cold_extraction": "passed independently, including a path with spaces",
+  "package_evidence": "product-installer.json",
+  "profile_evidence": "product-profile-preservation.json",
+  "resource_evidence": "product-resource.json",
+  "ci": {
+    "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/38889150575",
+    "head_sha": "1885d6af1fc7f3af665aad3284dab4c976ee7e0f",
+    "status": "completed",
+    "conclusion": "success",
+    "rust_passed": 29,
+    "python_passed": 49,
+    "python_optional_resource_skipped": 1,
+    "node_passed": 8,
+    "python_seconds": 91.443,
+    "native_format_clippy": "passed"
   }
 }
