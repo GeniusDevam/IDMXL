@@ -1,8 +1,8 @@
 # IDMXL progress
 
-Updated 16 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 17 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
-Current checkpoint: [Milestone 5](#milestone-5-browser-media-and-updater-product-layers) implements scoped browser capture, media and updater layers. 87 distinct automated cases and the final package resource/CLI smoke pass. Real Edge handoff and production update qualification remain open. Earlier milestones below are historical records.
+Current checkpoint: automatic capture can be enabled across HTTP/HTTPS websites for supported downloads larger than 1,000,000 bytes, including verified final redirect/query links and delayed size/name updates. Local validation passes 115 automated checks plus a separate public native-protocol download/hash test. Edge explicit handoff and Chrome connection have passed; real automatic capture and production update qualification remain open. Earlier milestones below are historical records.
 
 ## Milestone 1: first working transfer engine
 
@@ -153,3 +153,9 @@ Edge was exited normally to stop temporary diagnostic logging; the task-created 
 ## Source publication preparation
 
 The README now leads with the implemented file/media features, preview status and a fresh-clone build/launch walkthrough. A separate CLI guide covers protected URL input, queues, policies and expired-link replacement. Browser qualification, unsigned/manual-update status, unsupported workflows and the unselected product license remain explicit. Update documentation distinguishes public source visibility from public binary and updater availability. Machine-specific user-profile prefixes in evidence are normalized without changing results or hashes. No application behavior changed.
+
+## 17 October 2026: automatic capture across websites
+
+Extension 0.1.1 replaces the folder-entry setup with an all-sites enable button and an off switch. It requests optional HTTP/HTTPS and download-observation permissions from that click, captures only files strictly over 1,000,000 bytes, and rechecks configuration, permissions, source, size and browser danger before cancellation. Final redirect/query links must independently pass the engine's exact public range/strong-identity check. Unsupported downloads keep browser ownership. Existing folder settings retain their limits until the new mode is enabled.
+
+Validation: 34 Rust, 53 Python and 28 Node cases passed, with the optional >4 GiB case skipped rather than recounted. A separate release-engine native-protocol test completed the public 12,040,788-byte source archive through a query URL, matched its independent hash and ZoneId=3, and checked held-job blocking, query conflicts and duplicate commit. Browser cancellation in that test was simulated; it does not qualify real Chrome automatic capture. The updated engine and eight installed extension runtime files were verified without opening the user's download profile or changing registration. The desktop interface was left running. New NSIS packaging and inventory schema validation passed; real browser permission/capture checks remain pending. See `docs/evidence/automatic-capture.json`.

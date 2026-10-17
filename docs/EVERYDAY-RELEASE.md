@@ -32,7 +32,9 @@ DRM, encrypted streams, live streams, browser sessions, blob-only players, arbit
 
 Optional Windows completion notifications are off by default and available in **About this preview**. They require the interface to remain running, are best effort under Windows notification settings, and use fixed text without filenames or source URLs. Completion history is authoritative even when a notification is suppressed.
 
-The development extension and native host are included. Actual Edge connection and right-click public-link handoff passed on the development PC, followed by a completed file with the expected independent hash. Register the installed engine and the exact extension ID; fully exit and reopen Edge after setup if necessary. Chrome, store publication, real automatic-capture and browser media-popup qualification remain separate work. See [BROWSER-HANDOFF.md](BROWSER-HANDOFF.md).
+The development extension and native host are included. Actual Edge connection and right-click public-link handoff passed on the development PC, followed by a completed file with the expected independent hash. Chrome's popup connection check also passed. Register the installed engine and the exact extension ID; fully exit and reopen the browser after setup if necessary.
+
+Extension 0.1.1 adds **Enable automatic capture** for supported files larger than 1,000,000 bytes across HTTP/HTTPS websites, including verified final redirect/query links. Grant its browser permissions and start IDMXL's queue to run captured jobs automatically. Browser-only or unverified downloads stay in the browser. Store publication, real automatic-capture and browser media-popup qualification remain separate work. See [BROWSER-HANDOFF.md](BROWSER-HANDOFF.md).
 
 ## Status and evidence
 

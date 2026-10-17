@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "IDMXL — Downloads",
-  "version": "0.1.0",
-  "description": "Send file links to IDMXL, with optional capture for qualified public downloads on sites you choose.",
+  "version": "0.1.1",
+  "description": "Download with IDMXL. Optional automatic capture handles supported downloads over 1 MB across websites.",
   "permissions": [
     "contextMenus",
     "nativeMessaging",
@@ -11,7 +11,7 @@
     "scripting"
   ],
   "optional_permissions": ["downloads", "webRequest"],
-  "optional_host_permissions": ["https://*/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "IDMXL handoff" }
 }

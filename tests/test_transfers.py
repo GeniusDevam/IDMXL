@@ -461,6 +461,18 @@ class TransferTests(unittest.TestCase):
         reply=self.replies(self.host(self.frame(request)).stdout)[0]
         self.assertFalse(reply["accepted"])
 
+    def test_capture_query_urls_still_cannot_reach_private_networks(self):
+        for scheme in ("http", "https"):
+            request={"version":2,"kind":"prepare","request_id":str(uuid.uuid4()),
+                     "url":self.base.replace("http:",scheme+":")+"/file?download=1",
+                     "filename":"capture.bin","etag":'"one"',"total":str(len(DATA))}
+            result=self.host(self.frame(request))
+            self.assertEqual(result.returncode,0,result.stderr)
+            reply=self.replies(result.stdout)[0]
+            self.assertFalse(reply["accepted"])
+            self.assertEqual(reply["error"],"private_network_blocked")
+        self.assertEqual(self.command("list"),[])
+
     def test_retry_after_persists_and_blocks_other_jobs_on_same_origin(self):
         for path in ("/cooldown","/date-cooldown"):
             with self.subTest(path=path):

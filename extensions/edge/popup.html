@@ -13,6 +13,14 @@
     </p>
     <p id="status" role="status">No handoff yet.</p>
     <button id="check-host" type="button">Check IDMXL connection</button>
+    <section aria-labelledby="capture-heading">
+      <h2 id="capture-heading">Automatic downloads</h2>
+      <p>Capture downloads larger than 1 MB across websites.</p>
+      <button id="enable-capture" type="button">Enable automatic capture</button>
+      <button id="disable" type="button">Turn capture off</button>
+      <p id="rules" role="status"></p>
+      <small>1 MB = 1,000,000 bytes. Login-dependent, browser-only and unverified downloads continue in the browser. IDMXL must be connected; start its queue to run captured downloads automatically.</small>
+    </section>
     <details>
       <summary>Video and audio in this tab</summary>
       <button id="find-media" type="button">Find media links</button
@@ -42,30 +50,10 @@
         sessions and blob links cannot be transferred.
       </p>
     </details>
-    <details>
-      <summary>Optional public-file capture</summary>
-      <p>
-        Capture files of at least 1 MB from a public, replayable download
-        folder. Cookie-dependent, private, redirected, unverified and tokenized
-        downloads stay in the browser.
-      </p>
-      <form id="capture-form">
-        <label
-          >Public download folder URL
-          <input
-            id="folder"
-            type="url"
-            placeholder="https://example.com/files/"
-            required /></label
-        ><button type="submit">Enable for this folder</button>
-      </form>
-      <button id="disable" type="button">Turn capture off</button>
-      <p id="rules"></p>
-    </details>
     <small
       >Signed-in sessions are not transferred. Open IDMXL to start queued
       links.</small
     >
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

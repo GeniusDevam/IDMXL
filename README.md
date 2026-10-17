@@ -17,7 +17,7 @@
 | Verification | Optional expected SHA-256, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
 | Desktop controls | Searchable history, progress/speed/ETA, light/dark themes, reveal in folder, tray support and background downloads after closing the interface. |
 | Completion alerts | Optional Windows notifications while the interface is running; disabled by default. |
-| Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, plus opt-in public-file capture and clicked media-element discovery. See qualification details below. |
+| Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, optional automatic capture of supported downloads over 1 MB across websites, and clicked media-element discovery. See qualification details below. |
 | Video and audio | Direct media, restricted clear HLS VOD and static DASH; exact track selection, audio-only output and verified assembly without re-encoding or upscaling. |
 | Local state | SQLite history and Windows user-scoped protection for source URLs. Python is not required to run the built application. |
 
@@ -79,6 +79,8 @@ Load `extensions/edge` as an unpacked extension in an Edge or Chrome development
 
 Right-click a public file link and choose **Queue link in IDMXL**. The application must be built or installed and registered with that exact extension ID. Run registration from a normal Windows PowerShell session. Restart the browser fully after setup if its connection check cannot find the host.
 
+For automatic capture, open the extension, choose **Enable automatic capture** and approve its browser permission request. It considers downloads larger than **1,000,000 bytes** across HTTP/HTTPS websites, including verified final links reached through redirects. Start IDMXL's queue to run captured jobs automatically. Login-dependent, browser-only, dangerous or unverified downloads continue in the browser; this does not intercept every possible browser download. Existing folder-only settings remain limited until you enable the new all-sites mode. Reload an already-loaded development extension after updating its files.
+
 Real Edge connection, explicit context-menu handoff and a completed download with an independently matching hash have passed on the development PC. Chrome's actual popup connection check also passed on 17 October 2026; Chrome file handoff remains to be tested. Automatic capture and the browser media popup have automated coverage but still need broader real-browser qualification. The extension is not published in a browser store.
 
 ## Supported scope and limitations
@@ -89,7 +91,7 @@ Real Edge connection, explicit context-menu handoff and a completed download wit
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The last full validation recorded **95 distinct passing automated checks**, plus successful Windows CI, installed-interface checks and real download/hash checks. See [test evidence](docs/TEST-EVIDENCE.md) for the tested versions, boundaries and remaining qualification. These results do not cover every Windows environment or supported-looking website.
+The latest local validation recorded **115 passing automated checks** (34 Rust, 53 Python and 28 Node), plus a separate public-file native-protocol download/hash check. The optional >4 GiB case was not rerun for this update; its earlier evidence remains historical. Windows CI and installed-interface results are recorded separately in the [test evidence](docs/TEST-EVIDENCE.md), with tested versions, boundaries and remaining qualification. These results do not cover every Windows environment or supported-looking website.
 
 ## CLI and development
 

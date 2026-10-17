@@ -35,7 +35,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'CLI build failed.' }
     python -m unittest discover -s tests -v
     if ($LASTEXITCODE -ne 0) { throw 'HTTP fixture tests failed.' }
-    node --test extensions/edge/background.test.cjs extensions/edge/capture.test.cjs
+    node --test extensions/edge/background.test.cjs extensions/edge/capture.test.cjs extensions/edge/capture-settings.test.cjs extensions/edge/popup.test.cjs
     if ($LASTEXITCODE -ne 0) { throw 'Extension behavior tests failed.' }
     if (-not (Test-Path -LiteralPath 'apps\desktop\node_modules')) {
         npm.cmd --prefix apps/desktop ci --no-audit --no-fund

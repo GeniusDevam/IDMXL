@@ -9,6 +9,23 @@ use std::{
 };
 
 const LEASE_MS: i64 = 60_000;
+
+fn capture_source(url: &str, etag: &str, total: u64) -> Result<url::Url> {
+    let source = platform::checked_url(url)?;
+    if source.fragment().is_some()
+        || total == 0
+        || total > i64::MAX as u64
+        || etag.len() < 2
+        || etag.len() > 1024
+        || !etag.starts_with('"')
+        || !etag.ends_with('"')
+        || etag[1..etag.len() - 1].contains(['"', '\r', '\n'])
+    {
+        bail!("capture_ineligible");
+    }
+    Ok(source)
+}
+
 #[derive(Debug, Serialize)]
 pub struct CaptureStatus {
     pub request_id: String,
@@ -44,20 +61,7 @@ impl Store {
         total: u64,
     ) -> Result<CaptureStatus> {
         uuid::Uuid::parse_str(request_id).context("invalid_request_id")?;
-        let source = platform::checked_url(url)?;
-        if source.scheme() != "https"
-            || source.query().is_some()
-            || source.fragment().is_some()
-            || total == 0
-            || total > i64::MAX as u64
-            || etag.len() < 2
-            || etag.len() > 1024
-            || !etag.starts_with('"')
-            || !etag.ends_with('"')
-            || etag[1..etag.len() - 1].contains(['"', '\r', '\n'])
-        {
-            bail!("capture_ineligible");
-        }
+        let source = capture_source(url, etag, total)?;
         if let Ok(status) = self.capture_status(request_id) {
             let saved: (String, u64) = self.db.query_row(
                 "SELECT etag,total FROM capture_handoffs WHERE request_id=?1",
@@ -83,7 +87,8 @@ impl Store {
                 bail!("handoff_id_conflict");
             }
         }
-        // No cookies, proxy, credentials or redirects qualify. DNS is pinned to public addresses.
+        // Verify the browser's final URL, including its query, without cookies or redirects.
+        // DNS is pinned to public addresses; a signed URL must independently pass this probe.
         let probe =
             transport::probe_exact(source.as_str(), Arc::new(AtomicBool::new(false)), true)?;
         if !probe.ranged
@@ -266,17 +271,87 @@ mod tests {
                     .is_err()
             );
         }
-        assert!(
+    }
+
+    #[test]
+    fn capture_final_urls_allow_http_https_and_queries_but_require_strong_identity() {
+        for url in [
+            "https://example.org/file?token=reusable&download=1",
+            "http://example.org/file?download=1",
+        ] {
+            assert_eq!(capture_source(url, "\"one\"", 100).unwrap().as_str(), url);
+        }
+        for (url, etag, total) in [
+            ("https://example.org/file#fragment", "\"one\"", 100),
+            ("https://user:password@example.org/file", "\"one\"", 100),
+            ("file:///private", "\"one\"", 100),
+            ("https://example.org/file", "W/\"one\"", 100),
+            ("https://example.org/file", "", 100),
+            ("https://example.org/file", "\"one\"", 0),
+        ] {
+            assert!(capture_source(url, etag, total).is_err());
+        }
+    }
+
+    #[test]
+    fn query_changes_cannot_reuse_a_capture_request_or_its_saved_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let source = "https://example.org/file?token=original";
+        let changed = "https://example.org/file?token=different";
+        let job = store
+            .insert(
+                AddJob {
+                    url: source.into(),
+                    destination: root.path().join("file.bin"),
+                    replayable: true,
+                    expected_sha256: None,
+                },
+                Some(&request_id),
+                false,
+                "Default",
+                Some(("\"one\"", 100, crate::store::now() + 60000)),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
             store
                 .prepare_capture(
-                    &uuid::Uuid::new_v4().to_string(),
-                    "https://example.org/file?token=one-use",
+                    &request_id,
+                    changed,
                     "file.bin",
                     root.path(),
                     "\"one\"",
                     100
                 )
+                .unwrap_err()
+                .to_string(),
+            "handoff_id_conflict"
+        );
+        assert!(
+            store
+                .capture_identity(
+                    &job.id,
+                    Some(&transport::Probe {
+                        ranged: true,
+                        etag: Some("\"one\"".into()),
+                        total: Some(100),
+                        resolved: changed.into(),
+                    })
+                )
                 .is_err()
         );
+        store
+            .capture_identity(
+                &job.id,
+                Some(&transport::Probe {
+                    ranged: true,
+                    etag: Some("\"one\"".into()),
+                    total: Some(100),
+                    resolved: source.into(),
+                }),
+            )
+            .unwrap();
     }
 }

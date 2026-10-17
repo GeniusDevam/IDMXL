@@ -1,3 +1,9 @@
+import {
+  CAPTURE_PERMISSIONS,
+  enableAutomaticCapture,
+  disableAutomaticCapture,
+} from "./capture-settings.js";
+
 chrome.storage.local.get("lastStatus").then(({ lastStatus }) => {
   if (lastStatus) document.getElementById("status").textContent = lastStatus;
 });
@@ -28,55 +34,34 @@ document.getElementById("check-host").addEventListener("click", async () => {
 });
 async function showRules() {
   const { captureConfig } = await chrome.storage.local.get("captureConfig");
-  document.getElementById("rules").textContent = captureConfig?.enabled
-    ? "Enabled: " +
-      captureConfig.rules.map((r) => r.origin + r.prefix).join(", ")
-    : "Capture is off.";
+  const permitted = await chrome.permissions.contains(CAPTURE_PERMISSIONS);
+  const enabled = captureConfig?.enabled && captureConfig.scope === "all" && permitted;
+  document.getElementById("rules").textContent = enabled
+    ? "On: downloads over 1 MB across websites."
+    : captureConfig?.enabled && captureConfig.scope !== "all"
+      ? "Folder-only capture is active. Enable automatic capture to use all websites."
+      : "Automatic capture is off. Enable it to grant browser access.";
+  document.getElementById("enable-capture").disabled = enabled;
+  document.getElementById("disable").disabled = !captureConfig?.enabled;
 }
 void showRules();
-document
-  .getElementById("capture-form")
-  .addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const status = document.getElementById("status");
-    try {
-      const url = new URL(document.getElementById("folder").value);
-      if (
-        url.protocol !== "https:" ||
-        url.username ||
-        url.password ||
-        url.search ||
-        url.hash ||
-        !url.pathname.endsWith("/")
-      )
-        throw new Error();
-      const granted = await chrome.permissions.request({
-        permissions: ["downloads", "webRequest"],
-        origins: [url.origin + "/*"],
-      });
-      if (!granted) {
-        status.textContent = "Capture permission was not granted.";
-        return;
-      }
-      const { captureConfig } = await chrome.storage.local.get("captureConfig");
-      const rules = (captureConfig?.rules || [])
-        .filter((r) => r.origin !== url.origin || r.prefix !== url.pathname)
-        .slice(-19);
-      rules.push({ origin: url.origin, prefix: url.pathname });
-      await chrome.storage.local.set({
-        captureConfig: { enabled: true, rules },
-      });
-      status.textContent = "Public-file capture is enabled for this folder.";
-      await showRules();
-    } catch {
-      status.textContent =
-        "Use an HTTPS folder address ending in /, without a query or login details.";
+document.getElementById("enable-capture").addEventListener("click", async () => {
+  const status = document.getElementById("status");
+  try {
+    const granted = await enableAutomaticCapture(chrome);
+    if (!granted) {
+      status.textContent = "Capture permission was not granted.";
+      return;
     }
-  });
+    status.textContent = "Automatic capture is on for downloads over 1 MB. Unsupported downloads stay in the browser.";
+    await showRules();
+  } catch {
+    status.textContent = "Could not enable automatic capture. Check the extension's browser permissions and try again.";
+  }
+});
+
 document.getElementById("disable").addEventListener("click", async () => {
-  await chrome.storage.local.set({
-    captureConfig: { enabled: false, rules: [] },
-  });
+  await disableAutomaticCapture(chrome);
   await showRules();
 });
 let mediaRequestId = null;

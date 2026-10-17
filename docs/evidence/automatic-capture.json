@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-17",
+  "extension_version": "0.1.1",
+  "feature": {
+    "scope": "all HTTP/HTTPS websites after the user grants optional browser permissions",
+    "minimum_bytes_exclusive": 1000000,
+    "final_redirect_and_reusable_query_urls": true,
+    "later_size_and_filename_events": true,
+    "credential_transfer": false,
+    "unverified_or_browser_only_downloads": "continue in the browser",
+    "automatic_execution": "requires the IDMXL queue to be running"
+  },
+  "automated_checks": {
+    "rust": 34,
+    "python_passed": 53,
+    "python_reported": 54,
+    "python_skipped_optional_resource": 1,
+    "python_seconds": 219.929,
+    "node_extension_popup": 26,
+    "node_link_import": 2,
+    "total_passed": 115
+  },
+  "build_checks": {
+    "root_format_clippy": "passed",
+    "native_format_clippy": "passed",
+    "frontend_production": "passed",
+    "nsis_packaging": "passed"
+  },
+  "inventory": {
+    "components": 379,
+    "collected_notices": 561,
+    "missing_root_notice_review_entries": 44,
+    "cyclonedx_1_6_schema_errors": 0
+  },
+  "regression_notes": [
+    "An initial local file-publication unit failure passed when rerun with normal filesystem access.",
+    "An initial full Python run failed the existing DASH media fixture; its isolated repeat and complete rerun passed. The intermittent cause was not isolated; no media runtime code changed."
+  ],
+  "public_native_protocol_case": {
+    "date": "2026-10-17",
+    "scope": "Native messaging protocol test harness using the release engine and an isolated profile; no actual browser used",
+    "source": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz?download=1",
+    "browser_cancellation": "Simulated by the test harness only",
+    "prepared_job_held": true,
+    "run_before_commit_rejected": true,
+    "different_query_same_request_rejected": true,
+    "commit_idempotent": true,
+    "state": "completed",
+    "bytes": 12040788,
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "matches_packaged_original_source": true,
+    "zone_identifier": "[ZoneTransfer]\nZoneId=3\n",
+    "release_engine_sha256": "ad71a4d45b8713a6cee5ad8515e72960517805f8b43fe60932d75f74ff62a92a",
+    "user_profile_changed": false
+  },
+  "installed_update": {
+    "engine_sha256": "ad71a4d45b8713a6cee5ad8515e72960517805f8b43fe60932d75f74ff62a92a",
+    "matches_tested_release": true,
+    "engine_doctor": "passed",
+    "isolated_installed_native_status": {
+      "accepted": false,
+      "error": "handoff_not_found",
+      "version": 1
+    },
+    "extension_version": "0.1.1",
+    "extension_runtime_files_verified": 8,
+    "existing_download_profile_touched": false,
+    "browser_registration_changed": false,
+    "desktop_process_interrupted": false
+  },
+  "real_browser_automatic_capture": "Pending user activation and actual browser-download verification; protocol and mocked extension tests do not establish this result.",
+  "optional_large_file_case": "Not rerun for this update; prior evidence remains historical.",
+  "installer_upgrade": "New package built; a full upgrade round trip was not repeated."
+}

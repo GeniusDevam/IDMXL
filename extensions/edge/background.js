@@ -25,7 +25,7 @@ chrome.runtime.onInstalled.addListener(() => {
   );
 });
 
-// Only the browser's context-menu event can create work. No content-script or web-message bridge.
+// Explicit links use the browser's context-menu event. There is no web-message bridge.
 chrome.contextMenus.onClicked.addListener(async (info) => {
   if (info.menuItemId !== MENU || !info.linkUrl) return;
   let source;

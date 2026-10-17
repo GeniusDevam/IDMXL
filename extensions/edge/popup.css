@@ -9,6 +9,10 @@ h1 {
   margin: 0;
   font-size: 23px;
 }
+h2 {
+  margin-bottom: 6px;
+  font-size: 17px;
+}
 #status {
   padding: 12px;
   background: white;

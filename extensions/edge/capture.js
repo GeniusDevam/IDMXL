@@ -1,6 +1,52 @@
-// No request bodies, header values or source URLs are persisted by automatic capture.
+// No request bodies, credential values or source URLs are persisted by automatic capture.
+import { CAPTURE_PERMISSIONS } from "./capture-settings.js";
+
 const HOST = "dev.idmxl.host";
+export const MINIMUM_CAPTURE_BYTES = 1_000_000;
 const terminal = new Set(["committed", "released"]);
+function eligibleSource(download) {
+  try {
+    const source = new URL(download.finalUrl);
+    const original = new URL(download.url);
+    if (
+      !["http:", "https:"].includes(source.protocol) ||
+      !["http:", "https:"].includes(original.protocol) ||
+      source.username ||
+      source.password ||
+      original.username ||
+      original.password ||
+      source.hash
+    )
+      return null;
+    return source;
+  } catch {
+    return null;
+  }
+}
+function inScope(config, source) {
+  return (
+    config?.enabled &&
+    (config.scope === "all" ||
+      (config.rules || []).some(
+        (r) =>
+          r.origin === source.origin &&
+          typeof r.prefix === "string" &&
+          r.prefix.startsWith("/") &&
+          r.prefix.endsWith("/") &&
+          source.pathname.startsWith(r.prefix),
+      ))
+  );
+}
+function browserEligible(download) {
+  return (
+    !download.incognito &&
+    !download.byExtensionId &&
+    download.state === "in_progress" &&
+    download.danger === "safe" &&
+    Number.isSafeInteger(download.totalBytes) &&
+    download.totalBytes > MINIMUM_CAPTURE_BYTES
+  );
+}
 export function createCapture(
   api,
   clock = Date.now,
@@ -11,6 +57,10 @@ export function createCapture(
   const enqueue = (fn) => (serial = serial.catch(() => {}).then(fn));
   async function status(message) {
     await api.storage.local.set({ lastStatus: message });
+  }
+  async function allowed(config, source) {
+    return inScope(config, source) &&
+      (config.scope !== "all" || await api.permissions.contains(CAPTURE_PERMISSIONS));
   }
   async function records() {
     return (await api.storage.local.get("captureRecords")).captureRecords || {};
@@ -161,47 +211,18 @@ export function createCapture(
       BigInt(length) <= BigInt(Number.MAX_SAFE_INTEGER) &&
       values("set-cookie").length === 0 &&
       (encoding.length === 0 ||
-        (encoding.length === 1 && encoding[0].toLowerCase() === "identity"));
+        (encoding.length === 1 &&
+          typeof encoding[0] === "string" &&
+          encoding[0].toLowerCase() === "identity"));
     request.etag = etag;
     request.total = length;
+    request.at = clock();
   }
   async function created(download) {
     const config = (await api.storage.local.get("captureConfig")).captureConfig;
-    if (
-      !config?.enabled ||
-      download.incognito ||
-      download.byExtensionId ||
-      download.state !== "in_progress" ||
-      download.paused ||
-      download.danger !== "safe"
-    )
-      return;
-    let source;
-    try {
-      source = new URL(download.finalUrl);
-    } catch {
-      return;
-    }
-    if (
-      source.protocol !== "https:" ||
-      source.username ||
-      source.password ||
-      source.search ||
-      source.hash ||
-      download.url !== download.finalUrl
-    )
-      return;
-    if (
-      !(config.rules || []).some(
-        (r) =>
-          r.origin === source.origin &&
-          typeof r.prefix === "string" &&
-          r.prefix.startsWith("/") &&
-          r.prefix.endsWith("/") &&
-          source.pathname.startsWith(r.prefix),
-      )
-    )
-      return;
+    if (!browserEligible(download) || download.paused || !download.filename) return;
+    const source = eligibleSource(download);
+    if (!source || !(await allowed(config, source))) return;
     const candidates = [...requests.values()].filter(
       (r) =>
         r.url === source.href &&
@@ -209,7 +230,7 @@ export function createCapture(
         clock() - r.at < 30000 &&
         r.total === String(download.totalBytes),
     );
-    if (candidates.length !== 1 || download.totalBytes < 1048576) return;
+    if (candidates.length !== 1) return;
     const key = `${download.id}:${download.startTime}`;
     if ((await records())[key]) return;
     const record = {
@@ -229,7 +250,12 @@ export function createCapture(
     try {
       await api.downloads.pause(download.id);
       const paused = await item(record);
-      if (paused.state !== "in_progress" || !paused.paused) {
+      if (
+        !browserEligible(paused) ||
+        !paused.paused ||
+        paused.finalUrl !== source.href ||
+        String(paused.totalBytes) !== record.total
+      ) {
         await release(record);
         return;
       }
@@ -245,7 +271,14 @@ export function createCapture(
       }
       await setPhase(record, "prepared");
       const current = await item(record);
-      if (current.state !== "in_progress" || !current.paused) {
+      const latest = (await api.storage.local.get("captureConfig")).captureConfig;
+      if (
+        !(await allowed(latest, source)) ||
+        !browserEligible(current) ||
+        !current.paused ||
+        current.finalUrl !== source.href ||
+        String(current.totalBytes) !== record.total
+      ) {
         await release(record);
         return;
       }
@@ -262,6 +295,17 @@ export function createCapture(
     redirect: (details) => requests.delete(details.requestId),
     failed: (details) => requests.delete(details.requestId),
     created: (download) => enqueue(() => created(download)),
+    changed: (delta) =>
+      enqueue(async () => {
+        if (
+          !["totalBytes", "filename", "finalUrl", "danger", "state"].some(
+            (key) => key in delta,
+          )
+        )
+          return;
+        const [download] = await api.downloads.search({ id: delta.id });
+        if (download) await created(download);
+      }),
     recover: () =>
       enqueue(async () => {
         for (const record of Object.values(await records()))
@@ -270,30 +314,37 @@ export function createCapture(
   };
 }
 
-export async function installCapture(api) {
-  const enabled = await api.permissions.contains({
-    permissions: ["downloads", "webRequest"],
-  });
-  if (!enabled) return false;
+export function installCapture(api) {
+  // Register synchronously when the worker starts so its first download event is not lost.
+  if (!api.downloads || !api.webRequest) return Promise.resolve(false);
   const capture = createCapture(api);
-  api.webRequest.onBeforeSendHeaders.addListener(
-    capture.before,
-    { urls: ["https://*/*"] },
-    ["requestHeaders", "extraHeaders"],
+  const registered = [];
+  const add = (event, listener, ...args) => {
+    event.addListener(listener, ...args);
+    registered.push([event, listener]);
+  };
+  try {
+    const filter = { urls: ["http://*/*", "https://*/*"] };
+    add(api.webRequest.onBeforeSendHeaders, capture.before, filter, [
+      "requestHeaders",
+      "extraHeaders",
+    ]);
+    add(api.webRequest.onHeadersReceived, capture.headers, filter, [
+      "responseHeaders",
+      "extraHeaders",
+    ]);
+    add(api.webRequest.onBeforeRedirect, capture.redirect, filter);
+    add(api.webRequest.onErrorOccurred, capture.failed, filter);
+    add(api.downloads.onCreated, capture.created);
+    add(api.downloads.onChanged, capture.changed);
+    add(api.runtime.onStartup, capture.recover);
+  } catch {
+    for (const [event, listener] of registered) event.removeListener(listener);
+    return Promise.resolve(false);
+  }
+  // A storage/recovery failure must not cause a second set of listeners to be installed.
+  return capture.recover().then(
+    () => true,
+    () => true,
   );
-  api.webRequest.onHeadersReceived.addListener(
-    capture.headers,
-    { urls: ["https://*/*"] },
-    ["responseHeaders", "extraHeaders"],
-  );
-  api.webRequest.onBeforeRedirect.addListener(capture.redirect, {
-    urls: ["https://*/*"],
-  });
-  api.webRequest.onErrorOccurred.addListener(capture.failed, {
-    urls: ["https://*/*"],
-  });
-  api.downloads.onCreated.addListener(capture.created);
-  api.runtime.onStartup.addListener(capture.recover);
-  await capture.recover();
-  return true;
 }
