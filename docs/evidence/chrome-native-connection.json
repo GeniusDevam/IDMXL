@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-17",
+  "browser": "Google Chrome, existing development profile",
+  "connection_status": "IDMXL is connected and ready.",
+  "verification": "User confirmed the actual extension popup connection check after running the registration repair in a normal Windows session.",
+  "repair": {
+    "browser_registration": "Chrome per-user native host",
+    "config": "existing_preserved",
+    "manifest": "existing_preserved",
+    "history": "existing_preserved",
+    "local_native_host": "responded",
+    "status_response": "handoff_not_found for a fresh status request; expected readiness response without creating a job"
+  },
+  "earlier_diagnostic": "Chrome reported that the native-host manifest file did not exist. The precise difference from the earlier registration was not isolated.",
+  "cleanup": {
+    "temporary_chrome_diagnostic_logging": "off; confirmed from the running browser launch options",
+    "browser_security_settings_changed": false,
+    "computer_control": "released"
+  },
+  "runtime_code_changed": false,
+  "remaining_chrome_qualification": [
+    "Context-menu file handoff and completed download",
+    "Optional public-file capture",
+    "Browser media discovery and queueing"
+  ]
+}

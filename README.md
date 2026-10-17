@@ -17,7 +17,7 @@
 | Verification | Optional expected SHA-256, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
 | Desktop controls | Searchable history, progress/speed/ETA, light/dark themes, reveal in folder, tray support and background downloads after closing the interface. |
 | Completion alerts | Optional Windows notifications while the interface is running; disabled by default. |
-| Browser integration | An unpacked Edge extension for explicit public-link handoff, plus opt-in public-file capture and clicked media-element discovery. See qualification details below. |
+| Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, plus opt-in public-file capture and clicked media-element discovery. See qualification details below. |
 | Video and audio | Direct media, restricted clear HLS VOD and static DASH; exact track selection, audio-only output and verified assembly without re-encoding or upscaling. |
 | Local state | SQLite history and Windows user-scoped protection for source URLs. Python is not required to run the built application. |
 
@@ -73,13 +73,13 @@ Closing the window hides the interface to the tray while the worker continues. *
 
 History and settings are stored in `%LOCALAPPDATA%\IDMXL`. Downloaded files stay in the destinations you choose. Cancelling a job preserves its partial files; IDMXL does not silently delete them.
 
-## Connect Edge
+## Connect Edge or Chrome
 
-Load `extensions/edge` as an unpacked extension in an Edge development profile, copy its extension ID and register the native host. The [browser setup guide](docs/BROWSER-HANDOFF.md) gives the exact commands and permission details.
+Load `extensions/edge` as an unpacked extension in an Edge or Chrome development profile, copy its extension ID and register the native host for that browser. The folder works with both browsers; Chrome registration uses `-Browser Chrome`. The [browser setup guide](docs/BROWSER-HANDOFF.md) gives the exact commands and permission details.
 
-Right-click a public file link and choose **Queue link in IDMXL**. The application must be built or installed and registered with that exact extension ID. Restart Edge fully after setup if its connection check cannot find the host.
+Right-click a public file link and choose **Queue link in IDMXL**. The application must be built or installed and registered with that exact extension ID. Run registration from a normal Windows PowerShell session. Restart the browser fully after setup if its connection check cannot find the host.
 
-Real Edge connection, explicit context-menu handoff and a completed download with an independently matching hash have passed on the development PC. Automatic capture and the browser media popup have automated coverage but still need broader real-browser qualification. The extension is not published in a browser store; Chrome qualification remains open.
+Real Edge connection, explicit context-menu handoff and a completed download with an independently matching hash have passed on the development PC. Chrome's actual popup connection check also passed on 17 October 2026; Chrome file handoff remains to be tested. Automatic capture and the browser media popup have automated coverage but still need broader real-browser qualification. The extension is not published in a browser store.
 
 ## Supported scope and limitations
 

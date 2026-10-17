@@ -1,6 +1,6 @@
 # Browser integration (development)
 
-Load `extensions/edge` unpacked in an Edge development profile and register its exact 32-letter ID. Extension installation, developer-mode changes and browser permission prompts are user setup steps. The installed application includes extension source and this guide. Store publication and Chrome qualification are separate work.
+Load `extensions/edge` unpacked in an Edge or Chrome development profile and register its exact 32-letter ID. This folder works with both browsers. Extension installation, developer-mode changes and browser permission prompts are user setup steps. The installed application includes extension source and this guide. Store publication and broader browser workflow qualification remain open.
 
 ## Connect the application
 
@@ -10,7 +10,9 @@ Build the preview or use an installed copy. Create the download folder, then run
 .\scripts\browser-host.ps1 -Action Install -ExtensionId <32-letter-id> -DownloadDirectory C:\Downloads -Executable <installed-folder>\idmxl.exe
 ```
 
-For a source checkout, pass `target\release\idmxl.exe`. `-Action Prepare` writes configuration without registering it and permits an isolated `-StateDirectory`. Actual registration uses the current user's `%LOCALAPPDATA%\IDMXL` profile. `-Browser Chrome` selects a separately qualified browser registration. Uninstall removes only that registration and preserves downloads/history. Choose **Check IDMXL connection** in the popup to diagnose a missing registration, rejected ID or startup failure. Restart the browser after setup if necessary.
+For a source checkout, pass `target\release\idmxl.exe`. `-Action Prepare` writes configuration without registering it and permits an isolated `-StateDirectory`. Actual registration uses the current user's `%LOCALAPPDATA%\IDMXL` profile. Add `-Browser Chrome` to select Chrome; the default is Edge. Run installation from a normal Windows PowerShell session under the same user as the browser. Uninstall removes only that registration and preserves downloads/history. Choose **Check IDMXL connection** in the popup to diagnose a missing registration, rejected ID or startup failure. Restart the browser after setup if necessary.
+
+The shared host configuration permits one exact extension ID. Registering a different ID replaces that permitted origin; using both browsers with this profile requires the same extension ID in each browser.
 
 ## Explicit file links
 
@@ -41,3 +43,9 @@ Primary references: [Edge native messaging](https://learn.microsoft.com/en-us/mi
 With the installed engine registered, the earlier host-not-found status cleared after fully exiting Edge through **Settings and more → Close Microsoft Edge**, reopening it and having the user dismiss its developer-mode notice. Closing only a window had not resolved the earlier failure. The exact lookup-failure cause was not isolated; no browser security setting was changed. Use the popup's **Check IDMXL connection** to confirm readiness before testing a handoff.
 
 An actual right-click on a controlled local page's public HTTPS source-archive link created one durable request and one queued job. The popup acknowledged it. Running that native job completed a 12,040,788-byte file whose independent SHA-256 matched the packaged original source and whose Internet ZoneId was 3. This qualifies the explicit-link path on this development profile, not automatic capture, every browser or extension-store distribution. See `evidence/edge-native-success.json`.
+
+## Chrome connection on 17 October 2026
+
+The user confirmed **IDMXL is connected and ready.** in Chrome after repairing registration from their normal Windows session. The repair preserved the existing host configuration, manifest and download history. A framed native-host status check also received the expected response. Earlier diagnostic logs reported a missing manifest; the precise difference from the earlier registration was not isolated. Temporary diagnostic logging was confirmed off afterward. No browser policies or security settings were changed.
+
+This verifies the real Chrome connection check only. Chrome context-menu file handoff, optional capture and browser media workflows still need actual browser testing. See `evidence/chrome-native-connection.json`.
