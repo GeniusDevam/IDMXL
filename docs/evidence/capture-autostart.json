@@ -56,7 +56,11 @@
     "test_interface_exited": true,
     "computer_control": "released"
   },
-  "actual_browser_open_and_autostart": "pending ordinary Chrome click-through after update; native protocol cancellation was simulated in the desktop check",
+  "actual_browser_open_and_autostart": {
+    "result": "User confirmed IDMXL opened and started automatically after reloading extension 0.1.3 and clicking the official Node.js ZIP.",
+    "resume_button_required": false,
+    "completion_of_this_Chrome_captured_file": "Not independently verified; the two separate native desktop test transfers completed with published hash matches."
+  },
   "historical_chrome_capture": "0.1.2 screenshot confirms Node.js ZIP capture and receipt, but not completion.",
   "external_site_compatibility": "No site-specific download or compatibility claim is made.",
   "engine_sha256": "7d61db4bcff46ae2cffd6978d08a63338d0ec249dfc42d2dbf25c17d57a9514b",
@@ -64,5 +68,21 @@
   "native_lint": "passed with warnings denied",
   "frontend_build": "passed",
   "nsis_package": "built; installed update tracked separately",
-  "resource_note": "Historical >4 GiB result was not rerun or counted in this update."
+  "resource_note": "Historical >4 GiB result was not rerun or counted in this update.",
+  "installed_update": {
+    "extension_version": "0.1.3",
+    "runtime_files_verified": 12,
+    "engine_sha256": "7d61db4bcff46ae2cffd6978d08a63338d0ec249dfc42d2dbf25c17d57a9514b",
+    "desktop_sha256": "0a2cb3aa97592bb5feb7ac4c69f56304fe04eaba24e81edecde9fab8a6eeca98",
+    "profile_changed": false,
+    "registry_changed": false,
+    "GUI_left_closed": true,
+    "computer_control": "released"
+  },
+  "inventory": {
+    "components": 379,
+    "collected_notices": 561,
+    "review_entries": 44,
+    "CycloneDX_1_6_schema_errors": 0
+  }
 }
