@@ -128,6 +128,10 @@ impl Store {
             "ready" => {
                 tx.execute("UPDATE jobs SET state='queued',requested='run' WHERE id=?1 AND state='awaiting_browser'",[&status.job_id])?;
                 tx.execute(
+                    "UPDATE settings SET value='true' WHERE key='queue_running'",
+                    [],
+                )?;
+                tx.execute(
                     "UPDATE capture_handoffs SET phase='committed' WHERE request_id=?1",
                     [request_id],
                 )?;
@@ -209,6 +213,7 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let status = prepared(&store, root.path());
         assert_eq!(store.get(&status.job_id).unwrap().state, "awaiting_browser");
+        assert!(!store.queue_running().unwrap());
         assert!(store.request(&status.job_id, "queued").is_err());
         let engine = crate::Engine::new(store);
         assert_eq!(
@@ -219,6 +224,7 @@ mod tests {
             "browser_handoff_pending"
         );
         engine.store.commit_capture(&status.request_id).unwrap();
+        assert!(engine.store.queue_running().unwrap());
         drop(engine);
         let store = Store::open(root.path()).unwrap();
         assert_eq!(
@@ -228,6 +234,18 @@ mod tests {
         assert_eq!(store.list().unwrap().len(), 1);
         assert_eq!(store.get(&status.job_id).unwrap().state, "queued");
         assert!(store.abort_capture(&status.request_id).is_err());
+    }
+    #[test]
+    fn duplicate_commit_preserves_a_later_manual_job_and_queue_pause() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let status = prepared(&store, root.path());
+        store.commit_capture(&status.request_id).unwrap();
+        store.request(&status.job_id, "paused").unwrap();
+        store.set_queue_running(false).unwrap();
+        store.commit_capture(&status.request_id).unwrap();
+        assert_eq!(store.get(&status.job_id).unwrap().state, "paused");
+        assert!(!store.queue_running().unwrap());
     }
     #[test]
     fn expired_and_aborted_leases_never_enter_the_queue() {

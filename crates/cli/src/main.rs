@@ -102,6 +102,8 @@ enum Command {
     QueueRun {
         #[arg(long)]
         watch: bool,
+        #[arg(long, hide = true)]
+        startup_id: Option<uuid::Uuid>,
     },
     /// Stop queue admission and pause its current transfer.
     QueuePause,
@@ -238,12 +240,30 @@ fn run() -> Result<()> {
             let policy = serde_json::from_str(&text).context("invalid_queue_policy")?;
             serde_json::to_value(store.set_policy(&id, &policy)?)?
         }
-        Command::QueueRun { watch } => {
+        Command::QueueRun { watch, startup_id } => {
             let stop = Arc::new(AtomicBool::new(false));
             let signal = stop.clone();
             ctrlc::set_handler(move || signal.store(true, Ordering::Relaxed))?;
-            store.set_queue_running(true)?;
-            idmxl_engine::scheduler::drain(&Engine::new(store), watch, stop)?;
+            if startup_id.is_none() {
+                store.set_queue_running(true)?;
+            }
+            let ready_path =
+                startup_id.map(|id| store.directory.join(format!(".worker-ready-{id}")));
+            let result =
+                idmxl_engine::scheduler::drain_notifying(&Engine::new(store), watch, stop, || {
+                    if let Some(path) = &ready_path {
+                        std::fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(path)?
+                            .sync_all()?;
+                    }
+                    Ok(())
+                });
+            if let Some(path) = ready_path {
+                let _ = std::fs::remove_file(path);
+            }
+            result?;
             serde_json::json!({"status":"queue_worker_stopped"})
         }
         Command::QueuePause => {

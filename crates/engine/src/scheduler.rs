@@ -12,6 +12,16 @@ use std::{
 /// One active job per profile. This makes the global rate ceiling cover every queue.
 /// Failed and paused jobs require an explicit retry; one-use URLs are never replayed here.
 pub fn drain(engine: &Engine, watch: bool, stop: Arc<AtomicBool>) -> Result<()> {
+    drain_notifying(engine, watch, stop, || Ok(()))
+}
+
+/// A launcher receives readiness only after this worker owns the scheduler lock.
+pub fn drain_notifying(
+    engine: &Engine,
+    watch: bool,
+    stop: Arc<AtomicBool>,
+    ready: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -20,6 +30,7 @@ pub fn drain(engine: &Engine, watch: bool, stop: Arc<AtomicBool>) -> Result<()> 
         .open(engine.store.directory.join("scheduler.lock"))?;
     fs2::FileExt::try_lock_exclusive(&lock).context("scheduler_busy")?;
     engine.reconcile()?;
+    ready()?;
     while !stop.load(Ordering::Relaxed) && engine.store.queue_running()? {
         let Some(id) = engine.store.next_queued()? else {
             if !watch {

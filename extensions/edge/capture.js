@@ -160,14 +160,12 @@ export function createCapture(
     if (reply.phase !== "committed") throw new Error("commit_unconfirmed");
     record.job_id = reply.job_id;
     await setPhase(record, "committed");
-    await status(
-      "Browser download moved to IDMXL. Open IDMXL to start it, or leave its queue running.",
-    );
-    await outcome(download, "captured", "idmxl");
+    const automatic = reply.activation?.queue_started === true;
+    await outcome(download, automatic ? "captured" : "captured_manual_start", "idmxl");
     // Confirmation failure must never undo a committed handoff or recapture its job.
     try {
       await api.storage.local.set({
-        captureConfirmation: { filename: record.filename, bytes: Number(record.total), job_id: record.job_id, at: clock() },
+        captureConfirmation: { filename: record.filename, bytes: Number(record.total), job_id: record.job_id, at: clock(), automatic, desktop_requested: reply.activation?.desktop_requested === true },
       });
       await showCaptureConfirmation(api);
       await api.storage.local.set({ captureNoticeError: null });

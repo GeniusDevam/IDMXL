@@ -187,8 +187,22 @@ pub fn serve(origin: &str) -> Result<()> {
                     "abort" => store.abort_capture(&id.to_string())?,
                     _ => unreachable!(),
                 };
+                let activation = if request.kind == "commit" {
+                    // Ownership is already committed. Launch failures are reported
+                    // without releasing the job or resurrecting Chrome's transfer.
+                    std::env::current_exe().ok().and_then(|executable| {
+                        idmxl_engine::application::activate_capture(
+                            &store,
+                            &id.to_string(),
+                            &executable,
+                        )
+                        .ok()
+                    })
+                } else {
+                    None
+                };
                 return Ok(
-                    serde_json::json!({"version":2,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"phase":status.phase,"expires":status.expires}),
+                    serde_json::json!({"version":2,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"phase":status.phase,"expires":status.expires,"activation":activation}),
                 );
             }
             if request.etag.is_some()

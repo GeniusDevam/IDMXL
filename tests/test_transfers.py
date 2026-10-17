@@ -473,6 +473,83 @@ class TransferTests(unittest.TestCase):
             self.assertEqual(reply["error"],"private_network_blocked")
         self.assertEqual(self.command("list"),[])
 
+    def seed_capture(self, name="captured.bin"):
+        # Seed a held ownership record around our original localhost fixture.
+        # Public-only preparation is tested separately; it still rejects localhost.
+        job = self.add(name=name)
+        request_id = str(uuid.uuid4())
+        with sqlite3.connect(self.state / "jobs.db") as db:
+            db.execute("INSERT INTO handoffs VALUES(?,?)", (request_id, job["id"]))
+            db.execute("INSERT INTO capture_handoffs VALUES(?,'ready',?,'\"v1\"',?)", (request_id, int(time.time()*1000)+60000, len(DATA)))
+            db.execute("UPDATE jobs SET state='awaiting_browser',requested='paused' WHERE id=?", (job["id"],))
+        db.close()
+        return job, {"version":2,"kind":"commit","request_id":request_id,"browser_cancelled":True}
+
+    def stop_captured_worker(self):
+        self.command("queue-pause")
+        deadline = time.monotonic() + 15
+        while True:
+            with open(self.state / "scheduler.lock", "r+b") as handle:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        fcntl.flock(handle, fcntl.LOCK_UN)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        self.fail("captured download worker did not stop")
+            time.sleep(0.05)
+        time.sleep(0.1)
+
+    def test_capture_commit_starts_a_worker_that_survives_host_exit_and_completes(self):
+        first, commit = self.seed_capture()
+        second, other = self.seed_capture(name="captured-two.bin")
+        try:
+            result = self.host(self.frame(commit) + self.frame(other))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            replies = self.replies(result.stdout)
+            self.assertTrue(all(reply["activation"]["queue_started"] for reply in replies), replies)
+            deadline = time.monotonic() + 20
+            for job in [first, second]:
+                while self.command("show", job["id"])["state"] != "completed":
+                    if time.monotonic() >= deadline:
+                        self.fail("automatic capture did not complete after native host exited")
+                    time.sleep(0.05)
+                self.assertEqual(hashlib.sha256(Path(job["destination"]).read_bytes()).hexdigest(), DIGEST)
+            self.assertEqual(len(self.command("list")), 2)
+        finally:
+            self.stop_captured_worker()
+
+    def test_capture_requires_cancellation_and_duplicate_commit_preserves_manual_pause(self):
+        job, commit = self.seed_capture()
+        policy = job["policy"]
+        policy["not_before"] = int(time.time()*1000)+60000
+        self.command("policy", job["id"], input=json.dumps(policy))
+        invalid = dict(commit, browser_cancelled=False)
+        reply = self.replies(self.host(self.frame(invalid)).stdout)[0]
+        self.assertFalse(reply["accepted"])
+        self.assertEqual(self.command("show", job["id"])["state"], "awaiting_browser")
+        with sqlite3.connect(self.state / "jobs.db") as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='queue_running'").fetchone()[0], "false")
+        db.close()
+        try:
+            reply = self.replies(self.host(self.frame(commit)).stdout)[0]
+            self.assertTrue(reply["activation"]["queue_started"], reply)
+            self.command("pause", job["id"])
+        finally:
+            self.stop_captured_worker()
+        reply = self.replies(self.host(self.frame(commit)).stdout)[0]
+        self.assertEqual(reply["job_id"], job["id"])
+        self.assertEqual(self.command("show", job["id"])["state"], "paused")
+        with sqlite3.connect(self.state / "jobs.db") as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='queue_running'").fetchone()[0], "false")
+        db.close()
+
     def test_retry_after_persists_and_blocks_other_jobs_on_same_origin(self):
         for path in ("/cooldown","/date-cooldown"):
             with self.subTest(path=path):

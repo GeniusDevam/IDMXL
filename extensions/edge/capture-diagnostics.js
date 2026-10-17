@@ -1,5 +1,6 @@
 const reasons = {
-  captured: "Moved to IDMXL. Open the app to start it, or leave its queue running.",
+  captured: "Moved to IDMXL. Its download queue started automatically; saved schedules and limits still apply.",
+  captured_manual_start: "Moved to IDMXL, but automatic startup was not confirmed. Open the app and start its queue; update the installed app if necessary.",
   request_not_observed: "Kept in Chrome: the browser did not expose matching request details.",
   strong_identity_missing: "Kept in Chrome: the server did not provide the file identity required for a verified handoff.",
   browser_session_or_range: "Kept in Chrome: the request uses browser-session data or an existing partial transfer.",

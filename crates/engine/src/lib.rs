@@ -1,4 +1,5 @@
 mod adaptive;
+pub mod application;
 pub mod capture;
 pub mod engine;
 pub mod everyday;

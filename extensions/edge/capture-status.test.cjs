@@ -20,3 +20,11 @@ test('confirmation does not claim a missing receipt was successfully captured',a
   const f=await receipt(undefined);assert.match(f.element('result').textContent,/No capture receipt/);
   assert.doesNotMatch(f.element('result').textContent,/was queued/);
 });
+test('confirmation reports startup only when the native acknowledgement confirms it',async()=>{
+  const f=await receipt({job_id:'job',automatic:true,desktop_requested:true});
+  assert.match(f.element('startup').textContent,/IDMXL is opening/);
+  assert.match(f.element('startup').textContent,/queue started automatically/);
+  const old=await receipt({job_id:'job'});
+  assert.match(old.element('startup').textContent,/startup was not confirmed/);
+  assert.doesNotMatch(old.element('startup').textContent,/IDMXL is opening/);
+});

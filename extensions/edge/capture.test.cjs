@@ -10,7 +10,7 @@ async function fixture(options={}) {
     if (r.kind==='prepare') {if(options.prepareFails)throw new Error();phase='ready';if(options.disableDuringPrepare)journal.captureConfig.enabled=false;if(options.dangerDuringPrepare)download.danger='uncommon';if(options.urlChangesDuringPrepare)download.finalUrl+='?changed=1';}
     if (r.kind==='abort')phase='aborted';
     if (r.kind==='commit') {phase='committed';if(options.loseCommitReply&&!lost){lost=true;throw new Error();}}
-    return {version:2,accepted:true,request_id:r.request_id,job_id:'job',phase,expires:100000};
+    return {version:2,accepted:true,request_id:r.request_id,job_id:'job',phase,expires:100000,activation:options.activation};
   }},downloads:{search:async()=>[structuredClone(download)],pause:async()=>{calls.push('pause');download.paused=true;if(options.completesOnPause)download.state='complete';},resume:async()=>{calls.push('resume');download.paused=false;},cancel:async()=>{calls.push('cancel');if(options.cancelFails)throw new Error();download.state='interrupted';download.error='USER_CANCELED';}}};
   const capture=createCapture(api,()=>1000,()=> '0f417bf1-a960-462a-a1af-62d427ee655d');
   function observe(headers=[],responseHeaders=null,requestId='request') {capture.before({requestId,url:download.finalUrl,method:'GET',requestHeaders:headers});capture.headers({requestId,url:download.finalUrl,statusCode:200,responseHeaders:responseHeaders||[{name:'ETag',value:'"one"'},{name:'Content-Length',value:String(download.totalBytes)}]});}
@@ -22,6 +22,16 @@ test('prepare, confirmed pause, cancellation and durable ownership occur in orde
   assert.equal(f.phase,'committed');assert.equal(Object.values(f.journal.captureRecords)[0].phase,'committed');
   assert.doesNotMatch(JSON.stringify(f.journal),/https:\/\/example.org\/files\/file|Cookie/);
   await f.capture.created(f.download);assert.equal(f.calls.filter(c=>c==='commit').length,1);
+});
+test('confirmation distinguishes automatic startup from an older or unavailable app',async()=>{
+  for(const activation of [undefined,{queue_started:true,desktop_requested:true},{queue_started:false,desktop_requested:true}]) {
+    const f=await fixture({activation});f.api.windows={create:async()=>({id:1})};f.api.runtime.getURL=p=>p;
+    f.observe();await f.capture.created(f.download);
+    assert.equal(f.journal.captureConfirmation.automatic,activation?.queue_started===true);
+    assert.equal(f.journal.captureConfirmation.desktop_requested,activation?.desktop_requested===true);
+    assert.equal(f.journal.lastCaptureAttempt.code,activation?.queue_started?'captured':'captured_manual_start');
+    assert.equal(f.phase,'committed');assert.equal(f.calls.filter(c=>c==='cancel').length,1);
+  }
 });
 test('failed preparation and failed cancellation resume the browser without committing',async()=>{
   for(const option of [{prepareFails:true},{cancelFails:true}]){

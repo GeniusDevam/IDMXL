@@ -6,6 +6,10 @@ async function showReceipt() {
   document.getElementById("result").textContent = captureConfirmation?.job_id
     ? "This file was queued in IDMXL. Chrome's transfer was canceled after the verified handoff."
     : "No capture receipt is available. Check the extension and Chrome Downloads.";
+  document.getElementById("startup").textContent = !captureConfirmation?.job_id ? ""
+    : captureConfirmation.automatic
+      ? (captureConfirmation.desktop_requested ? "IDMXL is opening. " : "Open IDMXL to see progress. ") + "Its queue started automatically. Saved schedules, limits and earlier jobs can affect when this file begins."
+      : "Automatic startup was not confirmed. Open IDMXL and start its queue. If necessary, update the installed app.";
 }
 void showReceipt();
 chrome.storage.onChanged.addListener((changes, area) => {

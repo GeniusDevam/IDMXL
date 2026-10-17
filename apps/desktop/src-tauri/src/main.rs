@@ -240,37 +240,11 @@ async fn queue_control(running: bool, speed_limit: Option<String>) -> Result<(),
                 .set_queue_running(false)
                 .map_err(|_| "operation_failed".into());
         }
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(directory().join("scheduler.lock"))
+        store
+            .set_queue_running(true)
             .map_err(|_| "operation_failed")?;
-        if fs2::FileExt::try_lock_exclusive(&lock).is_err() {
-            return store
-                .set_queue_running(true)
-                .map_err(|_| "operation_failed".into());
-        }
-        let mut command = Command::new(engine_binary()?);
-        command
-            .arg("--state-dir")
-            .arg(directory())
-            .args(["queue-run", "--watch"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        drop(lock);
-        let mut child = command.spawn().map_err(|_| "engine_launch_failed")?;
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        });
-        Ok(())
+        idmxl_engine::application::ensure_queue_worker(&store, &engine_binary()?)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|_| "operation_failed".to_owned())?
@@ -462,7 +436,15 @@ fn completion_settings(enabled: Option<bool>) -> Result<serde_json::Value, Strin
         serde_json::json!({"notify":store.completion_notifications().map_err(|_|"operation_failed")?}),
     )
 }
-fn watch_completions(app: tauri::AppHandle) {
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn watch_application_events(app: tauri::AppHandle) {
     use tauri_plugin_notification::NotificationExt;
     std::thread::spawn(move || {
         let path = directory();
@@ -478,7 +460,26 @@ fn watch_completions(app: tauri::AppHandle) {
         if fs2::FileExt::try_lock_exclusive(&lock).is_err() {
             return;
         }
+        let mut shown = open()
+            .and_then(|s| s.interface_show_request().map_err(|e| e.to_string()))
+            .ok()
+            .flatten();
         loop {
+            if let Ok(store) = open() {
+                if let Ok(request) = store.interface_show_request()
+                    && request != shown
+                {
+                    shown = request;
+                    show_main(&app);
+                }
+                // Recover a worker that exited while a newer capture was enabling
+                // the queue. This does not change the saved pause/run preference.
+                if store.queue_running().unwrap_or(false)
+                    && let Ok(executable) = engine_binary()
+                {
+                    let _ = idmxl_engine::application::ensure_queue_worker(&store, &executable);
+                }
+            }
             if let Ok(store) = open()
                 && let Ok(jobs) = store.pending_completions()
             {
@@ -502,10 +503,18 @@ fn watch_completions(app: tauri::AppHandle) {
 }
 
 fn main() {
+    let Ok(store) = open() else {
+        return;
+    };
+    let Ok(Some(interface_lease)) = idmxl_engine::application::claim_interface(&store) else {
+        return;
+    };
+    drop(store);
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .setup(|app| {
+        .setup(move |app| {
+            app.manage(interface_lease);
             use tauri::{
                 menu::{Menu, MenuItem},
                 tray::TrayIconBuilder,
@@ -526,10 +535,7 @@ fn main() {
                 .tooltip("IDMXL — background downloads")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        show_main(app);
                     }
                     "pause" => {
                         if let Ok(store) = open() {
@@ -544,7 +550,7 @@ fn main() {
             }
             tray.build(app)?;
             let _ = open();
-            watch_completions(app.handle().clone());
+            watch_application_events(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
