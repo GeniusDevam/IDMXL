@@ -48,7 +48,7 @@ test('private, credentialed and unsupported downloads stay untouched',async()=>{
   for(const change of [{incognito:true},{danger:'uncommon'},{finalUrl:'blob:https://example.org/id'},{finalUrl:'https://user:password@example.org/file'},{totalBytes:500},{byExtensionId:'other'},{paused:true}]){
     const f=await fixture();f.observe();Object.assign(f.download,change);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
   }
-  for(const header of ['Cookie','Authorization','Range']) {const f=await fixture();f.observe([{name:header,value:'private'}]);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);}
+  for(const header of ['Authorization','Proxy-Authorization','Range']) {const f=await fixture();f.observe([{name:header,value:'private'}]);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);}
   const f=await fixture();await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
 });
 
@@ -111,14 +111,24 @@ test('unverified, weak, compressed, duplicate or mismatching response identities
     [{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097152'},{name:'Content-Encoding',binaryValue:[1]}],
     [{name:'ETag',value:'"one"'},{name:'ETag',value:'"two"'},{name:'Content-Length',value:'2097152'}],
     [{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097153'}],
-    [{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097152'},{name:'Set-Cookie',value:'private'}],
   ]) {
     const f=await fixture();f.observe([],headers);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
   }
 });
 
-test('parallel observations of the same URL are ambiguous and cannot cancel a browser download',async()=>{
-  const f=await fixture();f.observe([],null,'one');f.observe([],null,'two');await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
+test('conflicting observations of the same URL cannot cancel a browser download',async()=>{
+  const f=await fixture();f.observe([],null,'one');f.observe([],[{name:'ETag',value:'"two"'},{name:'Content-Length',value:'2097152'}],'two');await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
+});
+
+test('duplicate navigation/download observations can capture one identical public representation',async()=>{
+  const f=await fixture();f.observe([],null,'navigation');f.observe([],null,'download');await f.capture.created(f.download);
+  assert.equal(f.phase,'committed');assert.equal(f.calls.filter(c=>c==='cancel').length,1);
+});
+
+test('a public observation cannot mask a credential-bearing response at the same address',async()=>{
+  const f=await fixture();f.observe([],null,'public');f.observe([{name:'Authorization',value:'private-secret'}],null,'private');
+  await f.capture.created(f.download);assert.deepEqual(f.calls,[]);assert.equal(f.journal.lastCaptureAttempt.code,'ambiguous_request');
+  assert.doesNotMatch(JSON.stringify(f.journal),/private-secret/);
 });
 
 test('concurrent creation and change events commit only once',async()=>{
@@ -140,7 +150,7 @@ test('download listeners register before asynchronous recovery on a cold worker 
   const {installCapture}=await import('./capture.js');const hooks={};
   const event=name=>({addListener(fn,filter){hooks[name]={fn,filter};},removeListener(){delete hooks[name];}});
   let release;const held=new Promise(resolve=>release=resolve);
-  const api={storage:{local:{get:async()=>{await held;return {};}}},runtime:{onStartup:event('startup')},downloads:{onCreated:event('created'),onChanged:event('changed')},webRequest:{onBeforeSendHeaders:event('before'),onHeadersReceived:event('headers'),onBeforeRedirect:event('redirect'),onErrorOccurred:event('failed')}};
+  const api={storage:{local:{get:async()=>{await held;return {};}}},runtime:{onStartup:event('startup')},downloads:{onCreated:event('created'),onChanged:event('changed'),onDeterminingFilename:event('filename')},webRequest:{onBeforeSendHeaders:event('before'),onHeadersReceived:event('headers'),onBeforeRedirect:event('redirect'),onErrorOccurred:event('failed')}};
   const installed=installCapture(api);assert(hooks.created);assert(hooks.changed);assert.deepEqual(hooks.before.filter.urls,['http://*/*','https://*/*']);
   release();assert.equal(await installed,true);
 });
@@ -150,4 +160,86 @@ test('missing optional APIs or a rejected listener registration can be retried c
   let removed=0;const event={addListener(){},removeListener(){removed++;}};
   const api={downloads:{},webRequest:{onBeforeSendHeaders:event,onHeadersReceived:{addListener(){throw new Error('permission missing');}}}};
   assert.equal(await installCapture(api),false);assert.equal(removed,1);
+});
+
+test('a download created before its response observation is retried when headers arrive',async()=>{
+  const f=await fixture();await f.capture.created(f.download);
+  assert.equal(f.journal.lastCaptureAttempt.code,'request_not_observed');assert.deepEqual(f.calls,[]);
+  f.observe();await f.capture.idle();assert.equal(f.phase,'committed');
+  assert.equal(f.calls.filter(c=>c==='commit').length,1);
+});
+
+test('navigation-to-download abort preserves verified metadata; real network errors discard it',async()=>{
+  for(const error of ['net::ERR_ABORTED','net::ERR_CONNECTION_RESET']) {
+    const f=await fixture();f.observe();f.capture.failed({requestId:'request',error});await f.capture.created(f.download);
+    assert.equal(f.phase,error==='net::ERR_ABORTED'?'committed':'missing');
+  }
+});
+
+test('URL fragments never enter native requests and leading-zero lengths compare numerically',async()=>{
+  const f=await fixture();f.download.finalUrl+='#file-name.zip';
+  f.observe([],[{name:'ETag',value:'"one"'},{name:'Content-Length',value:'02097152'}]);
+  await f.capture.created(f.download);assert.equal(f.phase,'committed');
+  assert.equal(f.messages.find(r=>r.kind==='prepare').url,'https://example.org/files/file.bin');
+  assert.equal(f.messages.find(r=>r.kind==='prepare').total,'2097152');
+});
+
+test('skipped downloads expose a bounded reason without credentials or source addresses',async()=>{
+  const f=await fixture();f.download.finalUrl+='?token=private-secret';
+  f.observe([],[{name:'Content-Length',value:'2097152'}]);await f.capture.created(f.download);
+  assert.equal(f.journal.lastCaptureAttempt.code,'strong_identity_missing');
+  assert.doesNotMatch(JSON.stringify(f.journal),/private-secret|example\.org|https:/);
+});
+
+test('successful capture opens a confirmation once; popup failure cannot undo ownership',async()=>{
+  for(const fail of [false,true]) {
+    const f=await fixture();let windows=0;f.api.runtime.getURL=p=>'chrome-extension://test/'+p;
+    f.api.windows={create:async info=>{windows++;assert.equal(info.type,'popup');assert.match(info.url,/capture-status\.html$/);if(fail)throw new Error('window failure');return {id:12};}};
+    f.observe();await f.capture.created(f.download);await f.capture.recover();
+    assert.equal(f.phase,'committed');assert.equal(windows,1);assert.equal(f.journal.captureConfirmation.job_id,'job');
+    assert.equal(f.journal.captureNoticeError,fail?'confirmation_unavailable':null);
+    assert.equal(f.calls.filter(c=>c==='cancel').length,1);
+  }
+});
+
+test('capture confirmations reuse their own window and recover when that window was closed',async()=>{
+  const {showCaptureConfirmation}=await import('./capture.js');let created=0,focused=0;const saved={captureNoticeWindow:8};
+  const api={runtime:{getURL:p=>'chrome-extension://test/'+p},storage:{session:{get:async()=>saved,set:async value=>Object.assign(saved,value)}},windows:{update:async id=>{assert.equal(id,8);focused++;},create:async()=>{created++;return {id:9};}}};
+  await showCaptureConfirmation(api);assert.equal(focused,1);assert.equal(created,0);
+  api.windows.update=async()=>{throw new Error('closed');};await showCaptureConfirmation(api);
+  assert.equal(created,1);assert.equal(saved.captureNoticeWindow,9);
+});
+
+test('public downloads can qualify despite cookies, but no cookie values leave the observer',async()=>{
+  const f=await fixture();f.observe([{name:'Cookie',value:'private-cookie-value'}],[{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097152'},{name:'Set-Cookie',value:'private-response-cookie'}]);
+  await f.capture.created(f.download);assert.equal(f.phase,'committed');
+  assert.doesNotMatch(JSON.stringify(f.messages)+JSON.stringify(f.journal),/private-cookie-value|private-response-cookie|Cookie/);
+});
+
+test('a cookie-dependent file rejected by credential-free native verification resumes in Chrome',async()=>{
+  const f=await fixture({prepareFails:true});f.observe([{name:'Cookie',value:'private-session'}]);
+  await f.capture.created(f.download);assert.equal(f.download.state,'in_progress');assert.equal(f.download.paused,false);
+  assert(!f.calls.includes('cancel'));assert(!f.calls.includes('commit'));
+  assert.equal(f.journal.lastCaptureAttempt.code,'native_takeover_failed');
+  assert.doesNotMatch(JSON.stringify(f.messages)+JSON.stringify(f.journal),/private-session/);
+});
+
+test('the early filename event considers fast downloads and releases its default-name callback once',async()=>{
+  for(const fail of [false,true]) {
+    const f=await fixture({prepareFails:fail});f.observe();f.download.filename='';await f.capture.created(f.download);
+    let suggested=0;assert.equal(f.capture.determiningFilename({...f.download,filename:'C:\\Downloads\\early.zip'},()=>suggested++),false);
+    assert.equal(suggested,1);
+    await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(suggested,1);assert.equal(f.phase,fail?'aborted':'committed');
+    assert.equal(f.messages.find(r=>r.kind==='prepare').filename,'early.zip');
+  }
+  const f=await fixture();f.download.totalBytes=100;let suggested=0;
+  assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),false);assert.equal(suggested,1);assert.deepEqual(f.calls,[]);
+});
+
+test('a stopped capture controller cannot accept delayed events after a worker refresh',async()=>{
+  const f=await fixture();f.observe();await f.capture.idle();f.capture.stop();
+  await f.capture.created(f.download);await f.capture.changed({id:9,totalBytes:{current:2097152}});
+  f.observe();await f.capture.idle();assert.deepEqual(f.calls,[]);
+  let suggested=0;f.capture.determiningFilename(f.download,()=>suggested++);assert.equal(suggested,1);
 });

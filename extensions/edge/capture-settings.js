@@ -9,6 +9,8 @@ export async function enableAutomaticCapture(api) {
   await api.storage.local.set({
     captureConfig: { enabled: true, scope: "all" },
   });
+  const state = await api.runtime.sendMessage({ kind: "capture-refresh" });
+  if (!state?.ready) throw new Error("capture_worker_unavailable");
   return true;
 }
 
@@ -16,4 +18,5 @@ export async function disableAutomaticCapture(api) {
   await api.storage.local.set({
     captureConfig: { enabled: false, scope: "all" },
   });
+  await api.runtime.sendMessage({ kind: "capture-refresh" });
 }

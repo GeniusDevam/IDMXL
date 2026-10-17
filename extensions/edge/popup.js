@@ -3,6 +3,7 @@ import {
   enableAutomaticCapture,
   disableAutomaticCapture,
 } from "./capture-settings.js";
+import { captureReason } from "./capture-diagnostics.js";
 
 chrome.storage.local.get("lastStatus").then(({ lastStatus }) => {
   if (lastStatus) document.getElementById("status").textContent = lastStatus;
@@ -35,14 +36,24 @@ document.getElementById("check-host").addEventListener("click", async () => {
 async function showRules() {
   const { captureConfig } = await chrome.storage.local.get("captureConfig");
   const permitted = await chrome.permissions.contains(CAPTURE_PERMISSIONS);
-  const enabled = captureConfig?.enabled && captureConfig.scope === "all" && permitted;
+  let worker;
+  try { worker = await chrome.runtime.sendMessage({ kind: "capture-state" }); } catch {}
+  const enabled = captureConfig?.enabled && captureConfig.scope === "all" && permitted && worker?.ready;
   document.getElementById("rules").textContent = enabled
     ? "On: downloads over 1 MB across websites."
+    : captureConfig?.enabled && permitted && captureConfig.scope === "all"
+      ? "Capture is enabled in settings, but its worker is not ready. Click Enable automatic capture to reconnect it."
     : captureConfig?.enabled && captureConfig.scope !== "all"
       ? "Folder-only capture is active. Enable automatic capture to use all websites."
       : "Automatic capture is off. Enable it to grant browser access.";
   document.getElementById("enable-capture").disabled = enabled;
   document.getElementById("disable").disabled = !captureConfig?.enabled;
+  const { lastCaptureAttempt } = await chrome.storage.local.get("lastCaptureAttempt");
+  const { captureNoticeError } = await chrome.storage.local.get("captureNoticeError");
+  document.getElementById("capture-detail").textContent =
+    (worker?.ready ? "Capture worker is running. " : "Capture worker is not running. ") +
+    captureReason(lastCaptureAttempt?.code) +
+    (captureNoticeError ? " The confirmation window could not open; check IDMXL's history for the captured job." : "");
 }
 void showRules();
 document.getElementById("enable-capture").addEventListener("click", async () => {
@@ -57,8 +68,10 @@ document.getElementById("enable-capture").addEventListener("click", async () => 
     await showRules();
   } catch {
     status.textContent = "Could not enable automatic capture. Check the extension's browser permissions and try again.";
+    await showRules();
   }
 });
+document.getElementById("refresh-capture").addEventListener("click", showRules);
 
 document.getElementById("disable").addEventListener("click", async () => {
   await disableAutomaticCapture(chrome);

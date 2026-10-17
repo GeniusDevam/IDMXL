@@ -162,3 +162,5 @@ Validation: 34 Rust, 53 Python and 28 Node cases passed, with the optional >4 Gi
 
 
 Follow-up: the user screenshot confirms Chrome all-sites capture is enabled, with its off switch available. This qualifies activation only; actual automatic takeover remains unverified. Fresh Windows CI for 8b8300d passed: https://github.com/GeniusDevam/IDMXL/actions/runs/39021873201. The follow-up changes evidence only.
+
+Extension 0.1.2 follow-up: the user reported continued browser downloads despite the enabled switch. Added live worker readiness, permission refresh, late-header/early-name and navigation-detachment handling, fragment/length normalization, public-file verification without browser cookies, visible skip reasons and a committed-capture confirmation window. All 46 focused extension checks pass. Native binaries are unchanged. A controlled browser check was inconclusive (`ERR_BLOCKED_BY_CLIENT`); a later user screenshot confirms automatic takeover and the confirmation window for the official Node.js Windows ZIP. A residual Chrome Save As dialog and final file completion/hash remain separate checks. See `docs/evidence/capture-recovery.json`.

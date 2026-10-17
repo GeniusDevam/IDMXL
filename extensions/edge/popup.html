@@ -19,7 +19,12 @@
       <button id="enable-capture" type="button">Enable automatic capture</button>
       <button id="disable" type="button">Turn capture off</button>
       <p id="rules" role="status"></p>
-      <small>1 MB = 1,000,000 bytes. Login-dependent, browser-only and unverified downloads continue in the browser. IDMXL must be connected; start its queue to run captured downloads automatically.</small>
+      <details>
+        <summary>Capture details</summary>
+        <p id="capture-detail" role="status"></p>
+        <button id="refresh-capture" type="button">Refresh capture details</button>
+      </details>
+      <small>1 MB = 1,000,000 bytes. A confirmation window appears after a successful capture. Login-dependent, browser-only and unverified downloads continue in the browser. IDMXL must be connected; start its queue to run captured downloads automatically.</small>
     </section>
     <details>
       <summary>Video and audio in this tab</summary>

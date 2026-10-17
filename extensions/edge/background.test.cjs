@@ -7,7 +7,7 @@ function fixture(reply) {
   const chrome={permissions:{onAdded:{addListener:()=>{}}},runtime:{onInstalled:{addListener:fn=>hooks.installed=fn},sendNativeMessage:async(host,request)=>{calls.push({host,request});return reply(request);}},
     contextMenus:{onClicked:{addListener:fn=>hooks.clicked=fn},removeAll:fn=>fn(),create:info=>hooks.menu=info},
     storage:{local:{set:async value=>storage.push(value)}},action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}}};
-  vm.runInNewContext(fs.readFileSync(__dirname+'/background.js','utf8').replace(/^import .*$/m,''),{chrome,URL,installCapture:async()=>{},crypto:{randomUUID:()=> '0f417bf1-a960-462a-a1af-62d427ee655d'}});
+  vm.runInNewContext(fs.readFileSync(__dirname+'/background.js','utf8').replace(/^import .*$/m,''),{chrome,URL,createCaptureManager:()=>({start:async()=>{}}),crypto:{randomUUID:()=> '0f417bf1-a960-462a-a1af-62d427ee655d'}});
   return {hooks,calls,storage};
 }
 test('only an explicit valid link context-menu event can invoke the host',async()=>{

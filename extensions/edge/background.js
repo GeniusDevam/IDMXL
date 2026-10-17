@@ -1,17 +1,6 @@
-import { installCapture } from "./capture.js";
-let captureInitialization = null;
-function startCapture() {
-  if (!captureInitialization)
-    captureInitialization = installCapture(chrome)
-      .then((installed) => {
-        if (!installed) captureInitialization = null;
-      })
-      .catch(() => {
-        captureInitialization = null;
-      });
-}
-startCapture();
-chrome.permissions.onAdded.addListener(startCapture);
+import { createCaptureManager } from "./capture-manager.js";
+const captureManager = createCaptureManager(chrome);
+void captureManager.start().catch(() => {});
 const HOST = "dev.idmxl.host";
 const MENU = "idmxl-send-link";
 chrome.runtime.onInstalled.addListener(() => {

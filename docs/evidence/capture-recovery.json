@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-17",
+  "extension_version": "0.1.2",
+  "reported_problem": "Enabled settings did not produce a confirmation window or automatic takeover in the user test.",
+  "reported_fallback_cause": "Original site-specific fallback not isolated; repaired generic capture succeeded on official Node.js ZIP",
+  "focused_extension_checks_passed": 46,
+  "native_runtime_changed": false,
+  "native_engine_sha256": "ad71a4d45b8713a6cee5ad8515e72960517805f8b43fe60932d75f74ff62a92a",
+  "changes": [
+    "Live listener readiness and explicit refresh after optional permission grant",
+    "Retry when response observation follows download creation",
+    "Early filename event without delaying its callback",
+    "Preserve verified response metadata across navigation ERR_ABORTED detachment",
+    "Normalize URL fragments and numeric Content-Length",
+    "Verify public representations without transferring browser cookies; cookie-dependent files resume in Chrome",
+    "Bounded skip reasons without source URLs or credentials",
+    "Confirmation window only after durable commit; reuse/recovery and failure isolation",
+    "Retire listeners and drain in-flight work before replacing the capture controller",
+    "Deduplicate identical navigation/download representation observations; reject mixed credentialed or conflicting observations"
+  ],
+  "browser_check": {
+    "source": "Official FFmpeg source archive link",
+    "observed": "ERR_BLOCKED_BY_CLIENT",
+    "result": "Inconclusive; no verified takeover receipt",
+    "protections_changed": false,
+    "temporary_tab": "closed",
+    "computer_control": "released"
+  },
+  "actual_browser_takeover": "User screenshot confirms committed automatic capture of official Node.js Windows ZIP, 35.50 MB",
+  "actual_confirmation_window": "User screenshot confirms Download captured receipt for node-v22.20.0-win-x64.zip",
+  "earlier_full_suite_ci": "https://github.com/GeniusDevam/IDMXL/actions/runs/39021873201",
+  "public_native_probe": {
+    "source": "https://nodejs.org/download/release/v22.20.0/node-v22.20.0-win-x64.zip",
+    "bytes": 35500968,
+    "official_sha256": "bb819d6eb8f5bfda294bbc83a7e4ec6539da67c4233d54b0d655b9248b15e29d",
+    "native_prepare": "ready",
+    "native_abort": "aborted",
+    "full_file_downloaded_by_test": false,
+    "user_profile_changed": false
+  },
+  "browser_save_dialog": "Chrome Save As dialog remained visible behind receipt; user advised to cancel it",
+  "actual_captured_file_completion": "Not yet verified; queued handoff does not establish completion or a matching file hash"
+}
