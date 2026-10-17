@@ -91,7 +91,7 @@ Real Edge connection, explicit context-menu handoff and a completed download wit
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The latest local validation recorded **115 passing automated checks** (34 Rust, 53 Python and 28 Node), plus a separate public-file native-protocol download/hash check. The optional >4 GiB case was not rerun for this update; its earlier evidence remains historical. Windows CI and installed-interface results are recorded separately in the [test evidence](docs/TEST-EVIDENCE.md), with tested versions, boundaries and remaining qualification. These results do not cover every Windows environment or supported-looking website.
+The latest local validation recorded **115 passing automated checks** (34 Rust, 53 Python and 28 Node), plus a separate public-file native-protocol download/hash check. The optional >4 GiB case was not rerun for this update; its earlier evidence remains historical. Fresh [Windows CI](https://github.com/GeniusDevam/IDMXL/actions/runs/39021873201) passed for this implementation. Installed-interface results are recorded separately in the [test evidence](docs/TEST-EVIDENCE.md), with tested versions, boundaries and remaining qualification. These results do not cover every Windows environment or supported-looking website.
 
 ## CLI and development
 

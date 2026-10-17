@@ -53,3 +53,8 @@ An actual right-click on a controlled local page's public HTTPS source-archive l
 The user confirmed **IDMXL is connected and ready.** in Chrome after repairing registration from their normal Windows session. The repair preserved the existing host configuration, manifest and download history. A framed native-host status check also received the expected response. Earlier diagnostic logs reported a missing manifest; the precise difference from the earlier registration was not isolated. Temporary diagnostic logging was confirmed off afterward. No browser policies or security settings were changed.
 
 This verifies the real Chrome connection check only. Chrome context-menu file handoff, optional capture and browser media workflows still need actual browser testing. See `evidence/chrome-native-connection.json`.
+
+
+## Chrome capture enabled on 17 October 2026
+
+The user supplied a popup screenshot displaying **On: downloads over 1 MB across websites**. The greyed **Enable automatic capture** button is expected while that mode is active; **Turn capture off** remains available. This verifies activation, with no need to repeat the permission step. Start IDMXL's queue to run captured jobs as they arrive. The screenshot's queued-link message is not an automatic-takeover receipt; an actual automatic browser-download/completion test remains open.

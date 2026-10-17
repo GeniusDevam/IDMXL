@@ -68,7 +68,23 @@
     "browser_registration_changed": false,
     "desktop_process_interrupted": false
   },
-  "real_browser_automatic_capture": "Pending user activation and actual browser-download verification; protocol and mocked extension tests do not establish this result.",
+  "real_browser_automatic_capture": "User screenshot confirms all-sites capture is enabled. Actual automatic browser-download takeover and completed-file verification remain unqualified.",
   "optional_large_file_case": "Not rerun for this update; prior evidence remains historical.",
-  "installer_upgrade": "New package built; a full upgrade round trip was not repeated."
+  "installer_upgrade": "New package built; a full upgrade round trip was not repeated.",
+  "chrome_activation": {
+    "date": "2026-10-17",
+    "verification": "User-provided screenshot of the extension popup after enabling permissions",
+    "displayed_status": "On: downloads over 1 MB across websites.",
+    "enable_button_disabled": true,
+    "turn_off_button_available": true,
+    "scope": "Enabled configuration and permission state only; the queued-link message is not proof of automatic takeover."
+  },
+  "windows_ci": {
+    "implementation_commit": "8b8300d78bf032389375ca17ccc52c35a6050b26",
+    "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39021873201",
+    "status": "completed",
+    "conclusion": "success",
+    "fixture_stage": "passed",
+    "native_desktop_stage": "passed"
+  }
 }
