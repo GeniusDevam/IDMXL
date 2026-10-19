@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-19",
+  "app_version": "0.1.0",
+  "extension_version": "0.1.5",
+  "source_code_commit": "dd2270ff8b7976ef25e10b5118a03d4b9447a355",
+  "behavior": [
+    "Native save-location confirmation and cancellation journal",
+    "Suggested native default after four distinct folder confirmations; editable default and inactive native-file relocation",
+    "Live extension progress and typed per-file controls",
+    "Native takeover cancels the original browser download; browser-assisted entries remain original browser transfers",
+    "Immediate job-scoped native retry",
+    "Confirmed per-file and bulk deletion, bulk pause and cancel"
+  ],
+  "full_regression_suite": {
+    "rust": 49,
+    "python_passed": 59,
+    "python_reported": 60,
+    "python_skipped_optional_resource": 1,
+    "python_seconds": 135.173,
+    "node_extension": 72,
+    "node_link_import": 2,
+    "total_passed": 182
+  },
+  "build_checks": {
+    "rust_format": true,
+    "root_and_native_clippy_warnings_denied": true,
+    "typescript_vite": true,
+    "release_and_nsis": true
+  },
+  "native_save_dialog": {
+    "actual_windows_dialog": true,
+    "cancel_creates_no_job": true,
+    "save_creates_one_queued_job_at_chosen_path": true,
+    "scope": "Isolated release native host; generated queued entry only, no user profile or network download."
+  },
+  "desktop_confirmation_test": {
+    "bulk_delete_cancel_and_close_preserve_partial": true,
+    "per_file_delete_close_preserves_partial": true,
+    "confirmed_pause_all_native_and_browser_command": true,
+    "scope": "Isolated native desktop with simulated browser reports; actual Chrome not exercised. Destructive confirmation was not clicked in UI; backend generated-fixture deletion tests passed.",
+    "tested_interim_desktop_sha256": "1c9fb224d505781ad93131ef4870d5f8b6473cfc451e5af817db84dae4a80ff5",
+    "final_followup": "Final build adds unique confirmation label IDs and excludes failed entries from Pause all; validated by TypeScript/native build.",
+    "computer_control_released": true
+  },
+  "retry_and_deletion_regressions": {
+    "confirmed_folder_deduplication_and_four_use_threshold": true,
+    "relocation_preserves_saved_bytes_and_rejects_existing_target": true,
+    "retry_overrides_only_selected_job_once": true,
+    "retry_produces_exact_fixture_hash": true,
+    "deletion_keeps_history_and_rejects_replaced_completed_file": true,
+    "unconfirmed_bulk_snapshot_changes_nothing": true
+  },
+  "debug_media_validation": {
+    "earlier_full_run_failed_pause_resume_timeout": true,
+    "diagnosis": "Generated media bytes were already received while the unoptimized process continued CPU-intensive integrity verification. No deadlock established.",
+    "change": "Optimize only the sha2 dependency in debug builds; release profile and verification checks unchanged.",
+    "repeated_cases_after_change": 3,
+    "repeated_seconds": 75.946,
+    "final_full_suite_passed": true,
+    "historical_media_CI_causes_proven": false
+  },
+  "release_binaries": {
+    "engine_sha256": "1f1a8f747be468f941cdae6ece69f2c10f4c4e73184ba6e791ee9cc3fac707fd",
+    "desktop_sha256": "4743dee9bce20e017ca6cf6d23f0dad39c7ef80460d6736a84d68e5277e74cd0"
+  },
+  "installer": {
+    "bytes": 19648327,
+    "sha256": "2cbfb85610c08abf188daa71cad2779d981d6dec1220adfc3cc7df525539738c",
+    "full_nsis_upgrade_repeated": false
+  },
+  "inventory": {
+    "components": 379,
+    "collected_notices": 561,
+    "review_entries": 44,
+    "CycloneDX_1_6_schema_errors": 0,
+    "distribution_clearance_completed": false
+  },
+  "current_ci_at_save": {
+    "databaseId": 39292821659,
+    "headSha": "dd2270ff8b7976ef25e10b5118a03d4b9447a355",
+    "status": "in_progress",
+    "conclusion": "",
+    "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659"
+  },
+  "normal_windows_update_helper": {
+    "isolated_qualification_passed": true,
+    "isolated_history_preserved": true,
+    "isolated_running_queue_restored": true,
+    "runtime_files_verified": 14,
+    "real_update_verified": true,
+    "real_history_ids_preserved": true,
+    "real_previously_running_queue_restored": true,
+    "completed_utc": "2026-10-19T17:18:58.2710258Z",
+    "registry_changed": false
+  },
+  "actual_chrome_0_1_5_test": {
+    "status": "native location flow and no separate Chrome download confirmed by user; remaining buttons pending limited-speed test",
+    "test_file": "Official Node.js v22.20.0 Windows x64 ZIP",
+    "native_save_cancel_and_no_separate_browser_transfer_confirmed_by_user": true,
+    "live_progress_confirmed_by_user": true,
+    "extension_pause_resume_cancel_confirmed_by_user": false,
+    "reason_remaining_buttons_not_tested": "Download completed too quickly. User has been given temporary speed-limit steps and asked to restore the original value.",
+    "final_file_hash_independently_verified": false
+  },
+  "schema_migration_required": false,
+  "limitations": [
+    "Session-dependent browser transfers use Chrome/Edge Save As; Chrome owns the transfer and destination. IDMXL cannot force an arbitrary absolute path for an existing browser item.",
+    "Native default learning and relocation do not move browser transfers. Prepared-media and completed-file relocation are not included.",
+    "The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The file completed before all extension Pause/Resume/Cancel buttons could be tested; a temporarily limited-speed follow-up is pending. Final bytes were not independently hashed in this user-run Chrome test.",
+    "Optional >4 GiB fixture was not rerun or counted.",
+    "Unsigned manual-update development preview; clean-machine installation, wider browser/media, accessibility, signing and binary distribution qualification remain open."
+  ]
+}
