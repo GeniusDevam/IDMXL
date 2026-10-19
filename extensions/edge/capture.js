@@ -286,6 +286,11 @@ export function createCapture(
     const config = (await api.storage.local.get("captureConfig")).captureConfig;
     if (!config?.enabled || download.incognito) return;
     if (browser && await browser.owns(download)) { await browser.update(download); return; }
+    const saved = (await records())[`${download.id}:${download.startTime}`];
+    if (browser && saved?.phase === "released") {
+      scheduleBrowser(download, "native_takeover_failed");
+      return;
+    }
     if (download.state !== "in_progress") {
       pending.delete(download.id);
       if (download.state === "complete" && !(await records())[`${download.id}:${download.startTime}`])

@@ -98,7 +98,7 @@ Actual Edge connection/explicit handoff/completed-file hash and Chrome native au
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The preceding 0.1.3 local checkpoint passed **141 automated checks** and native/installer builds. Its Windows CI later failed two media component-transfer fixtures; the cause remains unresolved. The 0.1.4 full local suite passed **166 checks** (41 Rust, 57 Python and 68 Node), including compatibility-mode protocol/control/recovery tests. See [test evidence](docs/TEST-EVIDENCE.md) for build and browser qualification. Earlier large-file and native download/hash results remain historical; they do not verify every browser-owned transfer or website.
+The preceding 0.1.3 local checkpoint passed **141 automated checks** and native/installer builds. Its Windows CI later failed two media component-transfer fixtures; the cause remains unresolved. The 0.1.4 local validation covers **167 passing checks** (41 Rust, 57 Python and 69 Node), including compatibility-mode protocol/control/recovery tests. See [test evidence](docs/TEST-EVIDENCE.md) for build and browser qualification. Earlier large-file and native download/hash results remain historical; they do not verify every browser-owned transfer or website.
 
 ## CLI and development
 

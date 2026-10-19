@@ -37,6 +37,13 @@ test('late observed headers can finish native takeover before pending fallback c
 test('failed native preparation resumes Chrome before browser-assisted registration',async()=>{
   const browser=assisted(),f=await fixture({browser,prepareFails:true});f.observe();await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(browser.tracked.length,1);assert.equal(browser.tracked[0].paused,false);assert(!f.calls.includes('cancel'));assert(f.calls.includes('resume'));
 });
+
+test('worker restart after native release recovers browser tracking before late headers can strand it',async()=>{
+  const browser=assisted(),f=await fixture({browser});
+  f.journal.captureRecords={'9:2026-10-16T00:00:00Z':{key:'9:2026-10-16T00:00:00Z',download_id:9,start_time:f.download.startTime,request_id:'request',phase:'released',paused_by_us:true}};
+  f.observe();await f.capture.recover();await settleBrowser(f.capture);
+  assert.equal(browser.tracked.length,1);assert.equal(browser.tracked[0].paused,false);assert.deepEqual(f.calls,[]);
+});
 test('an ambiguous post-cancellation handoff is not relabeled as a continuing browser transfer',async()=>{
   const browser=assisted(),f=await fixture({browser});await f.capture.created(f.download);const send=f.api.runtime.sendNativeMessage;f.api.runtime.sendNativeMessage=async(host,message)=>{if(message.kind==='commit')throw new Error('lost');return send(host,message);};f.observe();await f.capture.idle();await settleBrowser(f.capture,800);assert.equal(f.download.state,'interrupted');assert.equal(Object.values(f.journal.captureRecords)[0].phase,'attention');assert.equal(browser.tracked.length,0);
 });
