@@ -7,7 +7,7 @@ export async function enableAutomaticCapture(api) {
   // This request must run directly from the user's button click.
   if (!(await api.permissions.request(CAPTURE_PERMISSIONS))) return false;
   await api.storage.local.set({
-    captureConfig: { enabled: true, scope: "all" },
+    captureConfig: { enabled: true, scope: "all", browserAssisted: true },
   });
   const state = await api.runtime.sendMessage({ kind: "capture-refresh" });
   if (!state?.ready) throw new Error("capture_worker_unavailable");

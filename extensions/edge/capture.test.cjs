@@ -12,10 +12,38 @@ async function fixture(options={}) {
     if (r.kind==='commit') {phase='committed';if(options.loseCommitReply&&!lost){lost=true;throw new Error();}}
     return {version:2,accepted:true,request_id:r.request_id,job_id:'job',phase,expires:100000,activation:options.activation};
   }},downloads:{search:async()=>[structuredClone(download)],pause:async()=>{calls.push('pause');download.paused=true;if(options.completesOnPause)download.state='complete';},resume:async()=>{calls.push('resume');download.paused=false;},cancel:async()=>{calls.push('cancel');if(options.cancelFails)throw new Error();download.state='interrupted';download.error='USER_CANCELED';}}};
-  const capture=createCapture(api,()=>1000,()=> '0f417bf1-a960-462a-a1af-62d427ee655d');
+  const capture=createCapture(api,()=>1000,()=> '0f417bf1-a960-462a-a1af-62d427ee655d',options.browser);
   function observe(headers=[],responseHeaders=null,requestId='request') {capture.before({requestId,url:download.finalUrl,method:'GET',requestHeaders:headers});capture.headers({requestId,url:download.finalUrl,statusCode:200,responseHeaders:responseHeaders||[{name:'ETag',value:'"one"'},{name:'Content-Length',value:String(download.totalBytes)}]});}
   return {api,capture,observe,journal,calls,messages,get download(){return download;},set download(v){download=v;},get phase(){return phase;}};
 }
+
+function assisted() {
+  let owned=false;const tracked=[],updates=[];
+  return {tracked,updates,owns:async()=>owned,track:async item=>{owned=true;tracked.push(structuredClone(item));return true;},update:async item=>updates.push(structuredClone(item))};
+}
+const settleBrowser=async(capture,delay=25)=>{await new Promise(resolve=>setTimeout(resolve,delay));await capture.idle();};
+
+test('weakly identified downloads use browser assistance without cancellation or replay',async()=>{
+  const browser=assisted(),f=await fixture({browser});f.observe([],[{name:'ETag',value:'W/"weak"'},{name:'Content-Length',value:String(f.download.totalBytes)}]);
+  await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(browser.tracked.length,1);assert.deepEqual(f.calls,[]);assert.equal(f.download.state,'in_progress');
+  f.observe();await f.capture.changed({id:9,totalBytes:{current:f.download.totalBytes}});assert.equal(browser.tracked.length,1);assert(browser.updates.length>=1);assert(browser.updates.every(item=>item.id===f.download.id));assert.deepEqual(f.calls,[]);
+});
+test('successful native takeover never creates a duplicate browser transfer',async()=>{
+  const browser=assisted(),f=await fixture({browser});f.observe();await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(f.phase,'committed');assert.equal(browser.tracked.length,0);
+});
+test('late observed headers can finish native takeover before pending fallback claims the item',async()=>{
+  const browser=assisted(),f=await fixture({browser});await f.capture.created(f.download);f.observe();await f.capture.idle();await settleBrowser(f.capture,800);assert.equal(f.phase,'committed');assert.equal(browser.tracked.length,0);
+});
+test('failed native preparation resumes Chrome before browser-assisted registration',async()=>{
+  const browser=assisted(),f=await fixture({browser,prepareFails:true});f.observe();await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(browser.tracked.length,1);assert.equal(browser.tracked[0].paused,false);assert(!f.calls.includes('cancel'));assert(f.calls.includes('resume'));
+});
+test('an ambiguous post-cancellation handoff is not relabeled as a continuing browser transfer',async()=>{
+  const browser=assisted(),f=await fixture({browser});await f.capture.created(f.download);const send=f.api.runtime.sendNativeMessage;f.api.runtime.sendNativeMessage=async(host,message)=>{if(message.kind==='commit')throw new Error('lost');return send(host,message);};f.observe();await f.capture.idle();await settleBrowser(f.capture,800);assert.equal(f.download.state,'interrupted');assert.equal(Object.values(f.journal.captureRecords)[0].phase,'attention');assert.equal(browser.tracked.length,0);
+});
+test('completed small files are tracked and stopped capture controllers discard pending fallback',async()=>{
+  const browser=assisted(),f=await fixture({browser});f.download.totalBytes=0;f.download.state='complete';await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(browser.tracked.length,1);assert.equal(browser.tracked[0].totalBytes,0);
+  const second=assisted(),g=await fixture({browser:second});g.download.totalBytes=100;await g.capture.created(g.download);g.capture.stop();await settleBrowser(g.capture);assert.equal(second.tracked.length,0);
+});
 test('prepare, confirmed pause, cancellation and durable ownership occur in order',async()=>{
   const f=await fixture();f.observe();await f.capture.created(f.download);
   assert.deepEqual(f.calls,['pause','prepare','cancel','status','commit']);

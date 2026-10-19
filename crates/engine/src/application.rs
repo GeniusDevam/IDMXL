@@ -147,6 +147,27 @@ pub struct BrowserActivation {
     pub desktop_requested: bool,
 }
 
+pub fn open_interface(store: &Store, executable: &Path) -> Result<bool> {
+    let desktop = executable
+        .parent()
+        .context("desktop_binary_missing")?
+        .join(if cfg!(windows) {
+            "idmxl-desktop.exe"
+        } else {
+            "idmxl-desktop"
+        });
+    if !desktop.is_file() {
+        return Ok(false);
+    }
+    let mut command = Command::new(desktop);
+    command.env("IDMXL_STATE_DIR", &store.directory);
+    let mut child = background(&mut command).context("desktop_launch_failed")?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(true)
+}
+
 /// Retry missing launch effects after a lost acknowledgement. Successful launch
 /// effects are journaled so duplicate commits cannot undo a later manual pause.
 pub fn activate_capture(
@@ -174,25 +195,7 @@ pub fn activate_capture(
         activation.queue_started = ensure_queue_worker(store, executable).is_ok();
     }
     if !activation.desktop_requested {
-        let desktop =
-            executable
-                .parent()
-                .context("desktop_binary_missing")?
-                .join(if cfg!(windows) {
-                    "idmxl-desktop.exe"
-                } else {
-                    "idmxl-desktop"
-                });
-        if desktop.is_file() {
-            let mut command = Command::new(desktop);
-            command.env("IDMXL_STATE_DIR", &store.directory);
-            if let Ok(mut child) = background(&mut command) {
-                activation.desktop_requested = true;
-                std::thread::spawn(move || {
-                    let _ = child.wait();
-                });
-            }
-        }
+        activation.desktop_requested = open_interface(store, executable).unwrap_or(false);
     }
     store.db.execute(
         "INSERT INTO settings VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",

@@ -28,3 +28,6 @@ test('confirmation reports startup only when the native acknowledgement confirms
   assert.match(old.element('startup').textContent,/startup was not confirmed/);
   assert.doesNotMatch(old.element('startup').textContent,/IDMXL is opening/);
 });
+test('browser receipt does not claim native takeover or automatic resume of a paused item',async()=>{
+  const f=await receipt({transport:'browser',job_id:'job',state:'paused',desktop_requested:true});assert.match(f.element('result').textContent,/Browser transfer/);assert.match(f.element('result').textContent,/not canceled or restarted/);assert.match(f.element('startup').textContent,/transfer is paused/);assert.doesNotMatch(f.element('startup').textContent,/queue started/);
+});

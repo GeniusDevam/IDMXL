@@ -1,8 +1,8 @@
 # IDMXL progress
 
-Updated 17 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 19 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
-Current checkpoint: automatic capture can be enabled across HTTP/HTTPS websites for supported downloads larger than 1,000,000 bytes, including verified final redirect/query links and delayed size/name updates. Local validation passes 115 automated checks plus a separate public native-protocol download/hash test. Edge explicit handoff and Chrome connection have passed; real automatic capture and production update qualification remain open. Earlier milestones below are historical records.
+Current checkpoint: extension 0.1.4 adds browser-assisted compatibility for ordinary downloads that cannot use verified native takeover, including small/unknown-size and session-bound transfers. They appear as **Browser transfer** with progress and controls; Chrome/Edge performs the original transfer. Compatible public files over 1,000,000 bytes retain native auto-open/start. Current checks and installation evidence are recorded in TEST-EVIDENCE.md; actual browser-assisted workflow qualification remains pending. The preceding runtime's Windows CI failed two media fixtures despite its passing local run; that cause remains unresolved. Earlier milestones below are historical records.
 
 ## Milestone 1: first working transfer engine
 

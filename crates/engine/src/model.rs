@@ -73,6 +73,7 @@ impl Default for JobPolicy {
 #[derive(Debug, Clone, Serialize)]
 pub struct JobView {
     pub id: String,
+    pub created_ms: i64,
     pub source: String,
     pub destination: String,
     pub name: String,
@@ -110,6 +111,7 @@ impl From<Job> for JobView {
             file_available: job.state == "completed" && job.destination.is_file(),
             destination: job.destination.to_string_lossy().into_owned(),
             id: job.id,
+            created_ms: 0,
             source: job.display_url,
             state: job.state,
             generation: job.generation,

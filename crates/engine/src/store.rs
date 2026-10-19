@@ -337,6 +337,9 @@ impl Store {
 
     pub fn view(&self, id: &str) -> Result<JobView> {
         let mut view: JobView = self.get(id)?.into();
+        view.created_ms = self
+            .db
+            .query_row("SELECT created FROM jobs WHERE id=?1", [id], |r| r.get(0))?;
         view.queue_window_open = self.queue_open(&view.policy.queue_name)?;
         (view.transfer_requests, view.failed_requests) = self.request_counts(id)?;
         Ok(view)

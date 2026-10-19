@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "IDMXL — Downloads",
-  "version": "0.1.3",
-  "description": "Download with IDMXL. Optional automatic capture handles supported downloads over 1 MB across websites.",
+  "version": "0.1.4",
+  "description": "Manage downloads in IDMXL. Compatible files use its engine; browser-assisted mode tracks other browser downloads.",
   "permissions": [
     "contextMenus",
     "nativeMessaging",

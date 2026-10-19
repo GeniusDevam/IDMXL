@@ -40,7 +40,7 @@ async function showRules() {
   try { worker = await chrome.runtime.sendMessage({ kind: "capture-state" }); } catch {}
   const enabled = captureConfig?.enabled && captureConfig.scope === "all" && permitted && worker?.ready;
   document.getElementById("rules").textContent = enabled
-    ? "On: downloads over 1 MB across websites."
+    ? "On: native downloads and Browser transfer compatibility across websites."
     : captureConfig?.enabled && permitted && captureConfig.scope === "all"
       ? "Capture is enabled in settings, but its worker is not ready. Click Enable automatic capture to reconnect it."
     : captureConfig?.enabled && captureConfig.scope !== "all"
@@ -50,10 +50,12 @@ async function showRules() {
   document.getElementById("disable").disabled = !captureConfig?.enabled;
   const { lastCaptureAttempt } = await chrome.storage.local.get("lastCaptureAttempt");
   const { captureNoticeError } = await chrome.storage.local.get("captureNoticeError");
+  const { browserBridgeError } = await chrome.storage.local.get("browserBridgeError");
   document.getElementById("capture-detail").textContent =
     (worker?.ready ? "Capture worker is running. " : "Capture worker is not running. ") +
     captureReason(lastCaptureAttempt?.code) +
-    (captureNoticeError ? " The confirmation window could not open; check IDMXL's history for the captured job." : "");
+    (captureNoticeError ? " The confirmation window could not open; check IDMXL's history for the captured job." : "") +
+    (browserBridgeError ? " " + browserBridgeError : "");
 }
 void showRules();
 document.getElementById("enable-capture").addEventListener("click", async () => {
@@ -64,7 +66,7 @@ document.getElementById("enable-capture").addEventListener("click", async () => 
       status.textContent = "Capture permission was not granted.";
       return;
     }
-    status.textContent = "Automatic capture is on for downloads over 1 MB. Unsupported downloads stay in the browser.";
+    status.textContent = "Automatic capture is on. Compatible files use IDMXL; other files appear as Browser transfers using the original browser session.";
     await showRules();
   } catch {
     status.textContent = "Could not enable automatic capture. Check the extension's browser permissions and try again.";

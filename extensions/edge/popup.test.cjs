@@ -22,7 +22,7 @@ test('popup enables all-site capture and exposes a working off switch',async()=>
   const f=await popup(true);assert.equal(f.element('enable-capture').disabled,false);
   await f.element('enable-capture').hooks.click();
   assert.equal(f.state.captureConfig.scope,'all');assert.equal(f.state.captureConfig.enabled,true);
-  assert.match(f.element('rules').textContent,/On: downloads over 1 MB/);assert.equal(f.element('enable-capture').disabled,true);
+  assert.match(f.element('rules').textContent,/On: native downloads and Browser transfer/);assert.equal(f.element('enable-capture').disabled,true);
   await f.element('disable').hooks.click();assert.equal(f.state.captureConfig.enabled,false);
   assert.equal(f.element('enable-capture').disabled,false);assert.equal(f.element('disable').disabled,true);
 });

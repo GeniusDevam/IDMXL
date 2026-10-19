@@ -1,4 +1,5 @@
 const reasons = {
+  browser_transfer: "Managed in IDMXL as a Browser transfer. Keep the browser open; its original transfer continues with no session replay.",
   captured: "Moved to IDMXL. Its download queue started automatically; saved schedules and limits still apply.",
   captured_manual_start: "Moved to IDMXL, but automatic startup was not confirmed. Open the app and start its queue; update the installed app if necessary.",
   request_not_observed: "Kept in Chrome: the browser did not expose matching request details.",

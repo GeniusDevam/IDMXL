@@ -29,6 +29,9 @@ struct Request {
     audio_selection: Option<String>,
     container: Option<String>,
     audio_only: Option<bool>,
+    client_id: Option<String>,
+    reports: Option<Vec<idmxl_engine::browser::BrowserReport>>,
+    acknowledgements: Option<Vec<idmxl_engine::browser::BrowserAck>>,
 }
 
 fn safe_name(name: Option<&str>) -> String {
@@ -109,11 +112,52 @@ pub fn serve(origin: &str) -> Result<()> {
                         "prepare" | "status" | "commit" | "abort"
                     )
                 || request.version == 3
-                    && matches!(request.kind.as_str(), "media_inspect" | "media_enqueue"))
+                    && matches!(request.kind.as_str(), "media_inspect" | "media_enqueue")
+                || request.version == 4 && request.kind == "browser_sync")
             {
                 bail!("unsupported_message");
             }
             let id = uuid::Uuid::parse_str(&request.request_id).context("invalid_request_id")?;
+            if request.version == 4 {
+                if request.url.is_some()
+                    || request.filename.is_some()
+                    || request.etag.is_some()
+                    || request.total.is_some()
+                    || request.browser_cancelled.is_some()
+                    || request.selection.is_some()
+                    || request.audio_selection.is_some()
+                    || request.container.is_some()
+                    || request.audio_only.is_some()
+                {
+                    bail!("invalid_message");
+                }
+                let client = request.client_id.context("invalid_message")?;
+                let commands = store.browser_sync(
+                    &client,
+                    &request.reports.context("invalid_message")?,
+                    &request.acknowledgements.context("invalid_message")?,
+                )?;
+                let opened = if store.browser_needs_interface(&client)? {
+                    std::env::current_exe().ok().is_some_and(|executable| {
+                        idmxl_engine::application::open_interface(&store, &executable)
+                            .unwrap_or(false)
+                    })
+                } else {
+                    false
+                };
+                if opened {
+                    store.browser_interface_requested(&client)?;
+                }
+                return Ok(
+                    serde_json::json!({"version":4,"accepted":true,"request_id":id.to_string(),"client_id":client,"commands":commands,"desktop_requested":opened}),
+                );
+            }
+            if request.client_id.is_some()
+                || request.reports.is_some()
+                || request.acknowledgements.is_some()
+            {
+                bail!("invalid_message");
+            }
             if request.version == 3 {
                 if request.etag.is_some()
                     || request.total.is_some()
@@ -246,6 +290,9 @@ pub fn serve(origin: &str) -> Result<()> {
                     "handoff_already_committed",
                     "cancellation_not_confirmed",
                     "private_network_blocked",
+                    "invalid_browser_message",
+                    "browser_client_conflict",
+                    "browser_capacity",
                 ];
                 serde_json::json!({"version":1,"accepted":false,"error":if known.contains(&code.as_str()){code.as_str()}else{"handoff_rejected"}})
             }

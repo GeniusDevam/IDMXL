@@ -7,7 +7,7 @@ test('all-site permission is requested from the enabling click before configurat
   const enabled=enableAutomaticCapture(api);
   assert.equal(calls[0][0],'permission');assert.equal(await enabled,true);
   assert.deepEqual(calls[0][1],{permissions:['downloads','webRequest'],origins:['http://*/*','https://*/*']});
-  assert.deepEqual(calls[1],['save',{captureConfig:{enabled:true,scope:'all'}}]);
+  assert.deepEqual(calls[1],['save',{captureConfig:{enabled:true,scope:'all',browserAssisted:true}}]);
 });
 
 test('denied or failed permissions never enable capture',async()=>{

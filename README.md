@@ -17,7 +17,7 @@
 | Verification | Optional expected SHA-256, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
 | Desktop controls | Searchable history, progress/speed/ETA, light/dark themes, reveal in folder, tray support and background downloads after closing the interface. |
 | Completion alerts | Optional Windows notifications while the interface is running; disabled by default. |
-| Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, optional automatic capture of supported downloads over 1 MB across websites, and clicked media-element discovery. See qualification details below. |
+| Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, native capture over 1 MB plus browser-assisted progress and controls for other ordinary downloads, and clicked media-element discovery. See qualification details below. |
 | Video and audio | Direct media, restricted clear HLS VOD and static DASH; exact track selection, audio-only output and verified assembly without re-encoding or upscaling. |
 | Local state | SQLite history and Windows user-scoped protection for source URLs. Python is not required to run the built application. |
 
@@ -71,7 +71,7 @@ The installer is written under `apps/desktop/src-tauri/target/release/bundle/nsi
 
 Closing the window hides the interface to the tray while the worker continues. **About this preview → Exit interface — keep downloads running** exits the interface without stopping its worker. Reopen IDMXL to see progress or completed history. Downloaded applications are never launched automatically.
 
-History and settings are stored in `%LOCALAPPDATA%\IDMXL`. Downloaded files stay in the destinations you choose. Cancelling a job preserves its partial files; IDMXL does not silently delete them.
+History and settings are stored in `%LOCALAPPDATA%\IDMXL`. Downloaded files stay in the destinations you choose. Canceling a native engine job preserves its partial files. Browser transfers follow the browser's cancellation and partial-file behavior.
 
 ## Connect Edge or Chrome
 
@@ -79,21 +79,26 @@ Load `extensions/edge` as an unpacked extension in an Edge or Chrome development
 
 Right-click a public file link and choose **Queue link in IDMXL**. The application must be built or installed and registered with that exact extension ID. Run registration from a normal Windows PowerShell session. Restart the browser fully after setup if its connection check cannot find the host.
 
-For automatic capture, open the extension, choose **Enable automatic capture** and approve its browser permission request. It considers downloads larger than **1,000,000 bytes** across HTTP/HTTPS websites, including verified final links reached through redirects. Successful captures open IDMXL and start its download queue automatically with extension 0.1.3 and the matching native app. Existing schedules and speed limits still apply; manually paused, canceled and failed jobs are not resumed. Login-dependent, browser-only, dangerous or unverified downloads continue in the browser; this does not intercept every possible browser download. Existing folder-only settings remain limited until you enable the new all-sites mode. Reload an already-loaded development extension after updating its files.
+For automatic capture, open extension **0.1.4**, choose **Enable automatic capture** and approve the browser permission request if shown. Already-enabled all-sites capture enables browser-assisted compatibility after reloading the extension and updating the matching app. Previously saved folder-only rules retain their limited scope until you enable all-sites capture.
 
-Extension 0.1.3 confirms the capture worker is running before showing **On**. Successful takeovers open a confirmation window. A real Chrome takeover of the official Node.js Windows ZIP is confirmed; its completed file/hash check is still pending. If Chrome leaves its Save As dialog open after the capture receipt, cancel that dialog; the updated IDMXL starts the captured job through its queue automatically. If a file stays in Chrome, expand **Capture details** and refresh it to see the reason. Public downloads can qualify even when the browser sends cookies, but the engine independently verifies them without those cookies; login-dependent downloads still stay in Chrome.
+There are two transfer modes:
 
-Real Edge connection, explicit context-menu handoff and a completed download with an independently matching hash have passed on the development PC. Chrome's popup connection check and one real automatic takeover with a confirmation receipt also passed on 17 October 2026. The newer native open/start behavior passed desktop tests, and the user confirmed automatic opening/start after a real Chrome download click with 0.1.3. Automatic capture and the browser media popup have automated coverage but still need broader real-browser qualification. The extension is not published in a browser store.
+- **Native IDMXL download:** compatible public HTTP(S) files strictly larger than **1,000,000 bytes** are verified independently before Chrome's transfer is canceled. IDMXL opens and starts its queue automatically; native schedules and limits still apply. A leftover Chrome Save As dialog can be canceled only after the receipt explicitly confirms native handoff.
+- **Browser transfer:** small files, unknown sizes and downloads that require the original browser session stay on that original transfer. IDMXL opens and displays progress and controls. Keep Chrome/Edge open and **choose Save** if it shows Save As. Native connection limits, speed caps, schedules and SHA-256 verification do not apply. Resume depends on browser support; security decisions remain in the browser.
+
+No cookies, POST bodies or session URLs are copied into the browser-transfer metadata protocol. Incognito downloads are excluded. This covers ordinary downloads exposed by the browser's downloads API; it cannot make blocked downloads, arbitrary media players or other applications' transfers downloadable. See **Capture details** for connection issues and the [browser guide](docs/BROWSER-HANDOFF.md) for mode-specific behavior.
+
+Actual Edge connection/explicit handoff/completed-file hash and Chrome native automatic opening/start have passed on the development PC. Browser-assisted 0.1.4 has fixture coverage; actual Chrome compatibility-mode qualification remains pending. Broader browser/media-popup testing and browser-store publication remain open.
 
 ## Supported scope and limitations
 
-- Media support is limited to the formats and manifest rules in [MEDIA.md](docs/MEDIA.md). DRM, encrypted/live streams, browser-session downloads, blob-only players, arbitrary video-site extraction and playlists are unsupported. No universal codec/HDR or 8K compatibility is claimed.
+- Media support is limited to the formats and manifest rules in [MEDIA.md](docs/MEDIA.md). DRM, encrypted/live streams, browser-session media extraction, blob-only players, arbitrary video-site extraction and playlists are unsupported. No universal codec/HDR or 8K compatibility is claimed.
 - Schedules require a logged-in user and a running queue worker. They do not wake a sleeping PC. Strict quotas and metered-network policies are not implemented.
 - FTP, website crawling, synchronization, proxy/authentication adapters and ZIP preview are outside this release.
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The current local engine/media suite passed **141 automated checks** (36 Rust, 55 Python and 50 Node), plus native formatting/Clippy, TypeScript/Vite and installer packaging. A separate native-protocol/desktop check opened the app, automatically completed two official Node.js ZIP transfers with matching published hashes, and restored the same hidden window. Its browser-cancellation assertion was simulated. The user subsequently confirmed automatic app opening and download startup from an ordinary Chrome click with 0.1.3; completion of that specific Chrome-captured file has not been independently verified. The optional >4 GiB case was not rerun; its earlier evidence remains historical. See the [test evidence](docs/TEST-EVIDENCE.md) for versions, limits and qualification. These results do not cover every Windows environment or supported-looking website.
+The preceding 0.1.3 local checkpoint passed **141 automated checks** and native/installer builds. Its Windows CI later failed two media component-transfer fixtures; the cause remains unresolved. The 0.1.4 full local suite passed **166 checks** (41 Rust, 57 Python and 68 Node), including compatibility-mode protocol/control/recovery tests. See [test evidence](docs/TEST-EVIDENCE.md) for build and browser qualification. Earlier large-file and native download/hash results remain historical; they do not verify every browser-owned transfer or website.
 
 ## CLI and development
 

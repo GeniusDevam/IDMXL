@@ -31,7 +31,7 @@ async fn list_jobs() -> Result<Vec<JobView>, String> {
             .map_err(|_| "history_unavailable".to_owned())?;
         engine
             .store
-            .list()
+            .desktop_jobs()
             .map_err(|_| "history_unavailable".into())
     })
     .await
@@ -63,6 +63,12 @@ async fn add_job(
 async fn start_job(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let store = open()?;
+        if store.is_browser_transfer(&id).map_err(|e| e.to_string())? {
+            return store
+                .browser_control(&id, "resume")
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
         let job = store.view(&id).map_err(|_| "job_not_found".to_owned())?;
         if matches!(job.state.as_str(), "completed" | "canceled") {
             return Err("job_not_runnable".into());
@@ -133,7 +139,21 @@ async fn start_job(id: String) -> Result<(), String> {
 #[tauri::command]
 async fn control_job(id: String, action: String) -> Result<JobView, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        open()?.request(&id, &action).map_err(|e| e.to_string())
+        let store = open()?;
+        if store.is_browser_transfer(&id).map_err(|e| e.to_string())? {
+            return store
+                .browser_control(
+                    &id,
+                    match action.as_str() {
+                        "paused" => "pause",
+                        "queued" => "resume",
+                        "canceled" => "cancel",
+                        _ => return Err("invalid_control_action".into()),
+                    },
+                )
+                .map_err(|e| e.to_string());
+        }
+        store.request(&id, &action).map_err(|e| e.to_string())
     })
     .await
     .map_err(|_| "operation_failed".to_owned())?
@@ -265,7 +285,14 @@ async fn queue_status() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn reveal_job(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let job = open()?.get(&id).map_err(|_| "job_not_found")?;
+        let store = open()?;
+        if store.is_browser_transfer(&id).map_err(|e| e.to_string())? {
+            return store
+                .browser_control(&id, "show")
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
+        let job = store.get(&id).map_err(|_| "job_not_found")?;
         if job.state != "completed" || !job.destination.is_file() {
             return Err("file_unavailable".into());
         }

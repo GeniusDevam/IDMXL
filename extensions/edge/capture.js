@@ -1,6 +1,7 @@
 // No request bodies, credential values or source URLs are persisted by automatic capture.
 import { CAPTURE_PERMISSIONS } from "./capture-settings.js";
 import { captureReason } from "./capture-diagnostics.js";
+import { createBrowserBridge } from "./browser-bridge.js";
 
 const HOST = "dev.idmxl.host";
 export const MINIMUM_CAPTURE_BYTES = 1_000_000;
@@ -57,11 +58,13 @@ export function createCapture(
   api,
   clock = Date.now,
   uuid = () => crypto.randomUUID(),
+  browser = null,
 ) {
   const requests = new Map();
   const pending = new Map();
   let stopped = false;
   let serial = Promise.resolve();
+  const browserTimers = new Map();
   const enqueue = (fn) => (serial = serial.catch(() => {}).then(fn));
   async function status(message) {
     await api.storage.local.set({ lastStatus: message });
@@ -75,6 +78,24 @@ export function createCapture(
         bytes: Number.isSafeInteger(download.totalBytes) ? download.totalBytes : -1,
       },
     });
+    if (browser && phase === "browser") scheduleBrowser(download, code);
+  }
+  function scheduleBrowser(download, code) {
+    if (stopped || browserTimers.has(download.id)) return;
+    const delay = ["waiting_for_download_details", "request_not_observed"].includes(code) ? 750 : 0;
+    const timer = setTimeout(() => {
+      browserTimers.delete(download.id);
+      void enqueue(async () => {
+        if (stopped) return;
+        const [current] = await api.downloads.search({id:download.id});
+        if (!current || current.startTime !== download.startTime || current.incognito) return;
+        const saved = (await records())[`${current.id}:${current.startTime}`];
+        if (saved && saved.phase !== "released") return;
+        await browser.track(current);
+      }).catch(() => {});
+    }, delay);
+    timer?.unref?.();
+    browserTimers.set(download.id,timer);
   }
   async function allowed(config, source) {
     return inScope(config, source) &&
@@ -263,10 +284,11 @@ export function createCapture(
   async function created(download) {
     if (stopped) return;
     const config = (await api.storage.local.get("captureConfig")).captureConfig;
-    if (!config?.enabled || download.incognito || download.byExtensionId) return;
+    if (!config?.enabled || download.incognito) return;
+    if (browser && await browser.owns(download)) { await browser.update(download); return; }
     if (download.state !== "in_progress") {
       pending.delete(download.id);
-      if (download.state === "complete" && download.totalBytes > MINIMUM_CAPTURE_BYTES && !(await records())[`${download.id}:${download.startTime}`])
+      if (download.state === "complete" && !(await records())[`${download.id}:${download.startTime}`])
         await outcome(download, "browser_finished_first");
       return;
     }
@@ -367,7 +389,7 @@ export function createCapture(
       requests.delete(details.requestId);
     },
     idle: () => serial.catch(() => {}),
-    stop: () => { stopped = true; requests.clear(); pending.clear(); },
+    stop: () => { stopped = true; requests.clear(); pending.clear(); for(const timer of browserTimers.values())clearTimeout(timer); browserTimers.clear(); },
     created: (download) => stopped ? Promise.resolve() : enqueue(() => created(download)),
     determiningFilename: (download, suggest) => {
       if (stopped || !browserEligible(download) || download.paused || !download.filename) {
@@ -383,7 +405,7 @@ export function createCapture(
     changed: (delta) =>
       stopped ? Promise.resolve() : enqueue(async () => {
         if (
-          !["totalBytes", "filename", "finalUrl", "danger", "state"].some(
+          !["totalBytes", "filename", "finalUrl", "danger", "state", "paused", "canResume", "exists", "error"].some(
             (key) => key in delta,
           )
         )
@@ -395,6 +417,10 @@ export function createCapture(
       stopped ? Promise.resolve() : enqueue(async () => {
         for (const record of Object.values(await records()))
           await recoverOne(record);
+        if (browser && !stopped) {
+          const active = await api.downloads.search({state:"in_progress"});
+          for (const download of active) await created(download);
+        }
       }),
   };
 }
@@ -402,7 +428,8 @@ export function createCapture(
 export function attachCapture(api) {
   // Register synchronously when the worker starts so its first download event is not lost.
   if (!api.downloads || !api.webRequest) return null;
-  const capture = createCapture(api);
+  const browser = createBrowserBridge(api, {showNotice:()=>showCaptureConfirmation(api)});
+  const capture = createCapture(api, Date.now, () => crypto.randomUUID(), browser);
   const registered = [];
   const add = (event, listener, ...args) => {
     event.addListener(listener, ...args);
@@ -425,15 +452,17 @@ export function attachCapture(api) {
     add(api.downloads.onDeterminingFilename, capture.determiningFilename);
     add(api.runtime.onStartup, capture.recover);
   } catch {
+    browser.dispose();
     for (const [event, listener] of registered) event.removeListener(listener);
     return null;
   }
   // A storage/recovery failure must not cause a second set of listeners to be installed.
   return {
-    ready: capture.recover(),
-    idle: capture.idle,
+    ready: browser.ready.then(() => capture.recover()),
+    idle: () => Promise.all([capture.idle(),browser.idle()]),
     dispose: () => {
       capture.stop();
+      browser.dispose();
       for (const [event, listener] of registered) event.removeListener(listener);
     },
     healthy: () => registered.every(([event, listener]) => !event.hasListener || event.hasListener(listener)),

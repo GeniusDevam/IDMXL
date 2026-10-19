@@ -1,6 +1,6 @@
 # Feature status
 
-Status on 16 October 2026. "Partial" means a useful subset exists; it does not satisfy the full original feature contract. Full release allocation remains in PLAN.md.
+Status on 19 October 2026. "Partial" means a useful subset exists; it does not satisfy the full original feature contract. Full release allocation remains in PLAN.md.
 
 | ID | Capability | Current evidence/status |
 |---|---|---|
@@ -11,7 +11,7 @@ Status on 16 October 2026. "Partial" means a useful subset exists; it does not s
 | F05 | Scheduling | Partial: one-time UTC starts/deadlines plus persisted weekday/overnight local queue windows, safe range checkpointing and single-stream finish behavior; wake and full DST/timezone-change qualification pending. |
 | F06 | Limits | Partial: per-job and global queue speed ceilings at admission; strict quotas and metered policies pending. |
 | F07 | Categories/folders | Partial: editable extension-to-subfolder rules in desktop link import, safe generated names, collision reservation and no-overwrite publication; rules do not move existing files or override explicit destinations. |
-| F08 | Browser handoff | Partial: explicit links plus optional automatic capture over 1,000,000 bytes across HTTP/HTTPS websites, including verified final redirects/query links and delayed size/name updates. Held preparation, verified cancellation, restart recovery, bounded native protocol and public DNS policy remain enforced. Browser-only or unverified downloads stay in the browser. Automated checks and actual Edge connection/context-menu handoff/completed-file hash pass; Chrome connection passes; real automatic capture and media-popup cases remain open. See TEST-EVIDENCE.md. |
+| F08 | Browser handoff | Partial: explicit links, verified native takeover over 1,000,000 bytes and browser-assisted compatibility for other ordinary downloads. **Browser transfer** entries show original browser progress and controls without replaying the session. Native integrity/public-network checks remain enforced. Actual Edge explicit handoff/hash and Chrome native auto-open/start passed; actual browser-assisted and broader media-popup qualification remain open. See TEST-EVIDENCE.md. |
 | F09 | Browser video button | Partial: clicked popup discovers video/audio element sources and queues supported public media. Blob/session-bound players and named site extractors are unsupported. |
 | F10 | Video quality | Partial: exact rendition/audio choices for direct files, restricted clear HLS VOD and static DASH. No conversion or silent quality fallback; broader codecs/HDR qualification pending. |
 | F11 | Track combination | Partial: product queue, controlled helpers, retained tracks, audio-only and stream-copy verification. Original 8K MOV/RGB + PCM, HLS AAC ranges and DASH AAC/fMP4 fixtures pass; broader codec matrix pending. |
@@ -23,7 +23,7 @@ Status on 16 October 2026. "Partial" means a useful subset exists; it does not s
 | F17 | FTP/FTPS | Pending, Extended. |
 | F18 | Proxies | Pending; environment proxies disabled. |
 | F19 | Authentication | Pending; password-bearing URLs rejected. |
-| F20 | Signed-in downloads | Pending; signed public URLs can be protected, but browser sessions are not transferred. |
+| F20 | Signed-in downloads | Partial: browser-assisted mode tracks and controls the original browser download using its existing session. Native session/authentication replay is unsupported; cookies and POST bodies are not transferred. Actual browser-assisted workflow qualification remains open. |
 | F21 | Expired-link refresh | Scoped implementation: replacement for idle ordinary jobs. Keeping saved bytes requires an original expected SHA-256 plus matching origin/path, strong ETag, length and range support; rejected candidates preserve the old source. Media/capture renewal is unsupported. |
 | F22 | Antivirus | Partial: Windows origin-zone metadata; scanner invocation/status pending. |
 | F23 | ZIP preview | Pending, Extended. |

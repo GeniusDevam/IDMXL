@@ -485,6 +485,44 @@ class TransferTests(unittest.TestCase):
         db.close()
         return job, {"version":2,"kind":"commit","request_id":request_id,"browser_cancelled":True}
 
+    def browser_message(self, client, reports=None, acknowledgements=None):
+        return {"version":4,"kind":"browser_sync","request_id":str(uuid.uuid4()),"client_id":client,"reports":reports or [],"acknowledgements":acknowledgements or []}
+
+    def test_browser_assisted_protocol_stores_progress_without_replaying_a_source(self):
+        client=str(uuid.uuid4())
+        report={"id":str(uuid.uuid4()),"name":"generated.zip","origin":"https://example.org","state":"downloading","total":None,"received":123,"speed":10,"can_resume":True,"exists":False}
+        message=self.browser_message(client,[report])
+        reply=self.replies(self.host(self.frame(message)).stdout)[0]
+        self.assertTrue(reply["accepted"],reply);self.assertEqual(reply["version"],4);self.assertEqual(reply["client_id"],client)
+        self.assertEqual(self.command("list"),[])
+        report.update(state="completed",total=123,exists=True)
+        reply=self.replies(self.host(self.frame(self.browser_message(client,[report]))).stdout)[0]
+        self.assertTrue(reply["accepted"],reply)
+        with sqlite3.connect(self.state/"jobs.db") as db:
+            saved=json.loads(db.execute("SELECT value FROM settings WHERE key=?",("browser_transfer:"+report["id"],)).fetchone()[0])
+            self.assertEqual(saved["report"]["state"],"completed")
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='queue_running'").fetchone()[0],"false")
+        db.close()
+        for fields in [{"url":self.base+"/file"},{"reports":[dict(report,cookies="secret")]},{"reports":[dict(report,origin="https://example.org/file?secret=token")]},{"reports":[dict(report,name="C:\\private\\file.zip")]}]:
+            bad=dict(self.browser_message(client,[report]),**fields)
+            reply=self.replies(self.host(self.frame(bad)).stdout)[0]
+            self.assertFalse(reply["accepted"],reply)
+        self.assertFalse((self.directory/"generated.zip").exists())
+
+    def test_browser_control_protocol_scopes_commands_to_the_client_and_acknowledges_once(self):
+        client=str(uuid.uuid4());other=str(uuid.uuid4());transfer=str(uuid.uuid4())
+        report={"id":transfer,"name":"file.zip","origin":None,"state":"paused","total":None,"received":10,"speed":0,"can_resume":True,"exists":False}
+        self.host(self.frame(self.browser_message(client,[report])))
+        command={"id":str(uuid.uuid4()),"transfer_id":transfer,"action":"resume","created":int(time.time()*1000)}
+        with sqlite3.connect(self.state/"jobs.db") as db:
+            db.execute("INSERT INTO settings VALUES(?,?)",("browser_command:"+client+":"+command["id"],json.dumps(command)))
+        db.close()
+        reply=self.replies(self.host(self.frame(self.browser_message(other))).stdout)[0];self.assertEqual(reply["commands"],[])
+        reply=self.replies(self.host(self.frame(self.browser_message(client))).stdout)[0];self.assertEqual(reply["commands"],[command])
+        ack={"id":command["id"],"success":True}
+        reply=self.replies(self.host(self.frame(self.browser_message(client,acknowledgements=[ack]))*2).stdout)
+        self.assertTrue(all(not response["commands"] for response in reply));self.assertEqual(self.command("list"),[])
+
     def stop_captured_worker(self):
         self.command("queue-pause")
         deadline = time.monotonic() + 15
