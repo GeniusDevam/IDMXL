@@ -527,20 +527,23 @@ class TransferTests(unittest.TestCase):
         self.command("queue-pause")
         deadline = time.monotonic() + 15
         while True:
-            with open(self.state / "scheduler.lock", "r+b") as handle:
-                try:
-                    if os.name == "nt":
-                        import msvcrt
-                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                    else:
-                        import fcntl
-                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        fcntl.flock(handle, fcntl.LOCK_UN)
-                    break
-                except OSError:
-                    if time.monotonic() >= deadline:
-                        self.fail("captured download worker did not stop")
+            try:
+                # A scheduler can release its lock just before its Store drops.
+                # Wait for all profile connections before deleting test files.
+                for name in ["scheduler.lock", "maintenance.lock"]:
+                    with open(self.state / name, "r+b") as handle:
+                        if os.name == "nt":
+                            import msvcrt
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                        else:
+                            import fcntl
+                            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            fcntl.flock(handle, fcntl.LOCK_UN)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self.fail("captured download worker did not close its profile")
             time.sleep(0.05)
         time.sleep(0.1)
 
@@ -554,9 +557,14 @@ class TransferTests(unittest.TestCase):
             self.assertTrue(all(reply["activation"]["queue_started"] for reply in replies), replies)
             deadline = time.monotonic() + 20
             for job in [first, second]:
-                while self.command("show", job["id"])["state"] != "completed":
+                while True:
+                    current = self.command("show", job["id"])
+                    if current["state"] == "completed":
+                        break
+                    self.assertNotIn(current["state"], ["failed", "canceled"],
+                                     f"automatic capture stopped: {current['state']} ({current['error']})")
                     if time.monotonic() >= deadline:
-                        self.fail("automatic capture did not complete after native host exited")
+                        self.fail(f"automatic capture did not complete after native host exited: {current['state']} ({current['error']})")
                     time.sleep(0.05)
                 self.assertEqual(hashlib.sha256(Path(job["destination"]).read_bytes()).hexdigest(), DIGEST)
             self.assertEqual(len(self.command("list")), 2)

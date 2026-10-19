@@ -272,7 +272,7 @@ impl Store {
         if encoded.len() > 8 * 1024 * 1024 {
             bail!("media_too_many_segments");
         }
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         tx.execute(
             "INSERT INTO media_jobs VALUES(?1,?2)",
             params![parent.id, platform::protect(&encoded)?],
@@ -541,7 +541,7 @@ fn execute_inner(engine: &Engine, id: &str, options: &RunOptions) -> Result<()> 
     let file_id = platform::file_id(&file)?;
     drop(file);
     // Persist the final owned file only through the ordinary recoverable publication protocol.
-    let tx = engine.store.db.unchecked_transaction()?;
+    let tx = engine.store.write_transaction()?;
     tx.execute("UPDATE jobs SET staging=?2,state='publishing',total=?3,actual_sha256=?4,publication_file_id=?5 WHERE id=?1",params![id,output_path.to_str().context("non_unicode_path")?,size,digest,file_id])?;
     tx.commit()?;
     crate::fault::point("after_publication_intent");

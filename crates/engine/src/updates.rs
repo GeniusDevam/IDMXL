@@ -183,7 +183,7 @@ pub fn check(profile: &Path) -> Result<UpdateView> {
     };
     let (_, bytes) = small_http::fetch(&config.endpoint, 96 * 1024, true)?;
     let store = Store::open(profile)?;
-    let tx = store.db.unchecked_transaction()?;
+    let tx = store.write_transaction()?;
     let release = verify(
         &config,
         &bytes,

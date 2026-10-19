@@ -350,7 +350,7 @@ impl Store {
         if reports.len() > 64 || acknowledgements.len() > 256 {
             bail!("invalid_browser_message");
         }
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         for report in reports {
             uuid(&report.id)?;
             let native_exists: bool = self.db.query_row(
@@ -490,7 +490,7 @@ impl Store {
         if count >= 128 {
             bail!("browser_command_capacity");
         }
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         self.db.execute(
             "INSERT INTO settings VALUES(?1,?2)",
             params![

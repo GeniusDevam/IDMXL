@@ -19,6 +19,13 @@ pub struct Store {
 }
 
 impl Store {
+    /// Acquire writer ownership before reading a value that this transaction
+    /// will update. A deferred read-to-write upgrade can fail immediately in WAL
+    /// mode even with busy_timeout when another connection commits first.
+    pub(crate) fn write_transaction(&self) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+        rusqlite::Transaction::new_unchecked(&self.db, rusqlite::TransactionBehavior::Immediate)
+    }
+
     pub fn open(directory: &Path) -> Result<Self> {
         std::fs::create_dir_all(directory)?;
         let directory = directory.canonicalize()?;
@@ -402,7 +409,7 @@ impl Store {
         mode: &str,
         reset: bool,
     ) -> Result<()> {
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = self.write_transaction()?;
         if reset {
             transaction.execute("DELETE FROM extents WHERE job_id=?1", [id])?;
             transaction.execute(
@@ -436,7 +443,7 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub(crate) fn forget_extent(&self, id: &str, offset: u64) -> Result<()> {
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = self.write_transaction()?;
         transaction.execute(
             "DELETE FROM extents WHERE job_id=?1 AND offset=?2",
             params![id, offset],
@@ -446,7 +453,7 @@ impl Store {
         Ok(())
     }
     pub(crate) fn checkpoint(&self, id: &str, generation: u64, extent: &Extent) -> Result<()> {
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = self.write_transaction()?;
         let current: u64 =
             transaction.query_row("SELECT generation FROM jobs WHERE id=?1", [id], |r| {
                 r.get(0)
@@ -472,7 +479,7 @@ impl Store {
         Ok(())
     }
     pub(crate) fn complete(&self, id: &str) -> Result<()> {
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = self.write_transaction()?;
         transaction.execute("UPDATE jobs SET state='completed',durable=total,received=total,speed=0,eta=NULL,requested='run',error=NULL WHERE id=?1",[id])?;
         transaction.execute("INSERT OR IGNORE INTO completion_events(job_id,created) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM media_components WHERE job_id=?1)",params![id,now()])?;
         transaction.commit()?;
@@ -522,7 +529,7 @@ impl Store {
             bail!("invalid_queue_policy");
         }
         self.get(id)?;
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = self.write_transaction()?;
         transaction.execute("UPDATE policies SET queue_name=?1,priority=?2,not_before=?3,deadline=?4,connections=?5,retries=?6,speed_limit=?7 WHERE job_id=?8",
             params![policy.queue_name.trim(),policy.priority,policy.not_before,policy.deadline,policy.connections,policy.retries,policy.speed_limit,id])?;
         transaction.execute("INSERT INTO settings VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("adaptive:{id}"),policy.adaptive.to_string()])?;

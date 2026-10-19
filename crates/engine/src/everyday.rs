@@ -57,7 +57,7 @@ impl Store {
         length: i64,
         retries: u32,
     ) -> Result<()> {
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         let used:u32=tx.query_row("SELECT budget_failures FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,offset,length],|r|r.get(0)).optional()?.unwrap_or(0);
         if used > retries {
             bail!("retry_exhausted");
@@ -73,7 +73,7 @@ impl Store {
         offset: u64,
         length: i64,
     ) -> Result<u32> {
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         tx.execute("UPDATE request_attempts SET budget_failures=budget_failures+1,total_failures=total_failures+1 WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,offset,length])?;
         let used=tx.query_row("SELECT budget_failures FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,offset,length],|r|r.get(0))?;
         tx.commit()?;
@@ -127,7 +127,7 @@ impl Store {
         } else {
             None
         };
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         tx.execute("UPDATE jobs SET source=?2,display_url=?3,resolved_url=?4,state='paused',requested='paused',error=NULL WHERE id=?1",params![id,platform::protect(new.as_str().as_bytes())?,platform::display_url(&new),resolved.map(|s|platform::protect(s.as_bytes())).transpose()?])?;
         tx.execute(
             "UPDATE job_origins SET origin=?2 WHERE job_id=?1",
@@ -146,6 +146,47 @@ impl Store {
 mod tests {
     use super::*;
     use crate::AddJob;
+    #[test]
+    fn request_admission_waits_for_the_writer_and_reads_the_committed_retry_budget() {
+        use std::{sync::mpsc, time::Duration};
+        let root = tempfile::tempdir().unwrap();
+        let writer = Store::open(root.path()).unwrap();
+        let job = writer
+            .add(AddJob {
+                url: "https://example.org/file".into(),
+                destination: root.path().join("file.bin"),
+                replayable: true,
+                expected_sha256: None,
+            })
+            .unwrap();
+        writer.start_request(&job.id, 0, 0, 1024, 2).unwrap();
+        let reader = Store::open(root.path()).unwrap();
+        writer.db.execute_batch("BEGIN IMMEDIATE").unwrap();
+        writer
+            .db
+            .execute(
+                "UPDATE request_attempts SET budget_failures=3 WHERE job_id=?1",
+                [&job.id],
+            )
+            .unwrap();
+        let (send, receive) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            send.send(
+                reader
+                    .start_request(&job.id, 0, 0, 1024, 2)
+                    .map_err(|e| e.to_string()),
+            )
+            .unwrap();
+        });
+        let early = receive.recv_timeout(Duration::from_millis(200));
+        writer.db.execute_batch("COMMIT").unwrap();
+        worker.join().unwrap();
+        assert!(
+            matches!(early, Err(mpsc::RecvTimeoutError::Timeout)),
+            "writer contention must wait rather than fail a live transfer: {early:?}"
+        );
+        assert_eq!(receive.recv().unwrap().unwrap_err(), "retry_exhausted");
+    }
     #[test]
     fn retries_survive_reopen_and_reset_only_the_budget() {
         let root = tempfile::tempdir().unwrap();

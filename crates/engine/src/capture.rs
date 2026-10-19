@@ -121,7 +121,7 @@ impl Store {
     }
 
     pub fn commit_capture(&self, request_id: &str) -> Result<CaptureStatus> {
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         let status = self.capture_status(request_id)?;
         match status.phase.as_str() {
             "committed" => {}
@@ -143,7 +143,7 @@ impl Store {
     }
 
     pub fn abort_capture(&self, request_id: &str) -> Result<CaptureStatus> {
-        let tx = self.db.unchecked_transaction()?;
+        let tx = self.write_transaction()?;
         let status = self.capture_status(request_id)?;
         if status.phase == "committed" {
             bail!("handoff_already_committed");
