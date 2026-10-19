@@ -88,7 +88,7 @@ There are two transfer modes:
 
 No cookies, POST bodies or session URLs are copied into the browser-transfer metadata protocol. Incognito downloads are excluded. This covers ordinary downloads exposed by the browser's downloads API; it cannot make blocked downloads, arbitrary media players or other applications' transfers downloadable. See **Capture details** for connection issues and the [browser guide](docs/BROWSER-HANDOFF.md) for mode-specific behavior.
 
-Actual Edge connection/explicit handoff/completed-file hash and Chrome native automatic opening/start have passed on the development PC. Browser-assisted 0.1.4 has fixture coverage; actual Chrome compatibility-mode qualification remains pending. Broader browser/media-popup testing and browser-store publication remain open.
+Actual Edge connection/explicit handoff/completed-file hash and Chrome native automatic opening/start have passed on the development PC. The user confirmed browser-assisted 0.1.4 capture and Pause/Resume with an original generated Chrome download. Completion/hash of that browser transfer remains unverified. Broader browser/media-popup testing and browser-store publication remain open.
 
 ## Supported scope and limitations
 
@@ -98,7 +98,7 @@ Actual Edge connection/explicit handoff/completed-file hash and Chrome native au
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The preceding 0.1.3 local checkpoint passed **141 automated checks** and native/installer builds. Its Windows CI later failed two media component-transfer fixtures; the cause remains unresolved. The 0.1.4 local validation covers **167 passing checks** (41 Rust, 57 Python and 69 Node), including compatibility-mode protocol/control/recovery tests. See [test evidence](docs/TEST-EVIDENCE.md) for build and browser qualification. Earlier large-file and native download/hash results remain historical; they do not verify every browser-owned transfer or website.
+The current local suite passed **168 checks** (42 Rust, 57 Python and 69 Node), plus native lint, frontend and installer builds. [Windows CI for the corrected runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39255942332) also passed. A database writer conflict found during native background-download testing is fixed and covered by a regression that failed before the change. Repeated release tests completed 16 generated files with matching hashes. Actual Chrome browser-assisted capture and Pause/Resume passed; completion/hash of that browser-owned file remains unverified. See [test evidence](docs/TEST-EVIDENCE.md) for earlier failures and scope limits. Historical >4 GiB results were not rerun or counted here.
 
 ## CLI and development
 

@@ -1,0 +1,143 @@
+{
+  "date": "2026-10-19",
+  "extension_version": "0.1.4",
+  "app_version": "0.1.0",
+  "native_implementation_commit": "42a62c993335bc875b811230df9df1e35eb1fa6d",
+  "source_code_commit": "42a62c993335bc875b811230df9df1e35eb1fa6d",
+  "behavior": "Native takeover for verified compatible public files over 1,000,000 bytes; other ordinary browser downloads stay on the original browser transfer and appear as Browser transfer with progress and controls.",
+  "credentials_or_post_replayed": false,
+  "browser_metadata_contains_full_urls_or_paths": false,
+  "schema_migration_required": false,
+  "full_regression_suite": {
+    "rust": 42,
+    "python_passed": 57,
+    "python_reported": 58,
+    "python_skipped_optional_resource": 1,
+    "python_seconds": 292.669,
+    "node_extension": 67,
+    "node_link_import": 2,
+    "total_passed": 168
+  },
+  "build_checks": {
+    "rust_format": true,
+    "root_and_native_clippy_warnings_denied": true,
+    "typescript_vite": true,
+    "release_and_nsis": true
+  },
+  "desktop_integration": {
+    "automatic_open": true,
+    "browser_label_and_reported_progress": true,
+    "pause_resume_cancel_commands_and_ui_states": true,
+    "native_queue_stayed_stopped": true,
+    "scope": "Actual release desktop/native host; browser reports and acknowledgements simulated. No actual Chrome transfer in this harness.",
+    "tested_desktop_sha256": "aaf204673b45d441fdf4a583404195b88050f30dc17698405bb14f53521ab230",
+    "interface_exited_normally": true,
+    "report_loop_stopped": true,
+    "computer_control_released": true
+  },
+  "actual_browser_assisted_test": {
+    "status": "capture_and_pause_resume_confirmed_by_user",
+    "method": "User reloaded unpacked 0.1.4 and tested an original generated loopback download. Browser transfer appeared and Pause/Resume controlled it.",
+    "completion_or_final_hash_verified": false,
+    "installed_window_observation": "The original generated Browser transfer entry was visible in the normal installed app. It was Canceled with zero received bytes at the later update check; no completed file is claimed.",
+    "website_compatibility_claimed": false
+  },
+  "native_chrome_historical": "User confirmed real Chrome native takeover opens IDMXL and starts without Resume with extension 0.1.3; completion/hash of that specific file not independently verified.",
+  "installer": {
+    "bytes": 19574025,
+    "sha256": "3d5c6a29bb2ccaff520e942828689905c325d168fc98fe851d6cbc255e5f6803",
+    "full_nsis_upgrade_repeated": false
+  },
+  "inventory": {
+    "components": 379,
+    "collected_notices": 561,
+    "review_entries": 44,
+    "CycloneDX_1_6_schema_errors": 0,
+    "distribution_clearance_completed": false
+  },
+  "current_ci_at_save": [
+    {
+      "conclusion": "success",
+      "databaseId": 39255942332,
+      "headSha": "42a62c993335bc875b811230df9df1e35eb1fa6d",
+      "status": "completed",
+      "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39255942332"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 39253576587,
+      "headSha": "6cd1cc41103c89cc8c1724b443ced401adcd0a14",
+      "status": "completed",
+      "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39253576587"
+    },
+    {
+      "conclusion": "failure",
+      "databaseId": 39252368798,
+      "headSha": "e08b3e36f5d36446b5bf6c7e86521d9aa6e17329",
+      "status": "completed",
+      "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39252368798"
+    }
+  ],
+  "preceding_ci_failure": {
+    "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39036715864",
+    "result": "Two existing media component-transfer failures; cause not isolated. Both cases passed in the current full local run; no media-runtime fix claimed."
+  },
+  "limitations": [
+    "Browser must stay open; browser security decisions remain manual.",
+    "Choose Save for a browser transfer; Cancel stops it.",
+    "Native limits, schedules, acceleration and SHA-256 do not apply to browser transfers.",
+    "Incognito and downloads absent from the browser API are excluded.",
+    "Historical >4 GiB case not rerun or counted.",
+    "Unsigned manual-update preview; clean-machine, broader browser/media, accessibility and distribution qualification remain open."
+  ],
+  "release_binaries": {
+    "engine_sha256": "7042c5125a5dcba3e9a192f2711b96133c7a3e289d640a16dc5a34943a7c34c9",
+    "desktop_sha256": "5c0c8d20f585ef9b418d1ff73057f89055d039a91697603aed5586b5ee24a118"
+  },
+  "pre_lockfix_extension_followup": {
+    "reason": "Recover a released native handoff after a worker restart before late headers can strand browser tracking.",
+    "passed": 67,
+    "native_source_changed": false,
+    "aggregate_distinct_passing_cases": 167
+  },
+  "database_contention_fix": {
+    "reproduced_error": "database is locked before the first file request",
+    "regression_failed_before_fix": true,
+    "regression_passed_after_fix": true,
+    "behavior": "Immediate write transactions acquire writer ownership before read-modify-write operations; the retry budget is checked after waiting.",
+    "before_fix_repeat": "8 iterations: one failed transfer and one profile cleanup race.",
+    "after_fix_debug_repeat": {
+      "passed": 8,
+      "seconds": 18.405
+    },
+    "after_fix_release_repeat": {
+      "passed": 8,
+      "seconds": 26.77,
+      "files_completed_with_matching_original_hash": 16
+    },
+    "after_fix_cleanup_errors": 0,
+    "ci_failure_before_fix": "https://github.com/GeniusDevam/IDMXL/actions/runs/39252368798",
+    "primary_reference": "https://www.sqlite.org/isolation.html"
+  },
+  "normal_windows_update_helper": {
+    "isolated_test_passed": true,
+    "history_ids_preserved_in_test": true,
+    "background_queue_restored_in_test": true,
+    "file_hashes_verified": true,
+    "no_runtime_python_required": true,
+    "rejects_redirected_tool_cache": true,
+    "real_update_status": "pending_user_execution",
+    "reason": "A tool-launched interface resolved a separate cached profile and could not load the normal history; that interface was exited. The helper must run in a normal Windows session."
+  },
+  "previous_installed_verification": {
+    "extension_version": "0.1.4",
+    "runtime_files_verified": 13,
+    "engine_sha256": "c87eeb448482ac315b66e43d07bf159ef066919cb7a60f145b6146da5aa09f46",
+    "desktop_sha256": "b1d3c6130145b8419a9b1503cbef565c31368de8c65ec2679225b34352e02440",
+    "profile_changed": false,
+    "registry_changed": false,
+    "computer_control": "released",
+    "interfaces_force_closed": false,
+    "interface_normal_exit_and_reopen": true
+  }
+}

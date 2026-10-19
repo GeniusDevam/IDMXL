@@ -2,7 +2,7 @@
 
 Updated 19 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
-Current checkpoint: extension 0.1.4 adds browser-assisted compatibility for ordinary downloads that cannot use verified native takeover, including small/unknown-size and session-bound transfers. They appear as **Browser transfer** with progress and controls; Chrome/Edge performs the original transfer. Compatible public files over 1,000,000 bytes retain native auto-open/start. Current checks and installation evidence are recorded in TEST-EVIDENCE.md; actual browser-assisted workflow qualification remains pending. The preceding runtime's Windows CI failed two media fixtures despite its passing local run; that cause remains unresolved. Earlier milestones below are historical records.
+Current checkpoint: extension 0.1.4 adds browser-assisted compatibility for ordinary downloads that cannot use verified native takeover, including small/unknown-size and session-bound transfers. They appear as **Browser transfer** with progress and controls; Chrome/Edge performs the original transfer. Compatible public files over 1,000,000 bytes retain native auto-open/start. Current checks and installation evidence are recorded in TEST-EVIDENCE.md; the user confirmed actual Chrome browser-assisted capture and Pause/Resume with generated data; completion/hash remains unverified. The preceding runtime's Windows CI failed two media fixtures despite its passing local run; that cause remains unresolved. Earlier milestones below are historical records.
 
 ## Milestone 1: first working transfer engine
 
@@ -170,3 +170,6 @@ Extension 0.1.3/native follow-up: confirmed captures now enable the queue, launc
 0.1.3 validation: 141 passing automated checks (36 Rust / 55 Python / 50 Node), native lint, frontend and installer build. A separate release/native desktop test automatically opened IDMXL, completed two official Node.js ZIPs with published hash matches, and restored the same hidden window. Isolated queue stopped and interface exited; actual Chrome open/start remains pending.
 
 0.1.3 Chrome follow-up: updated installed engine/desktop and twelve extension files hash-verified; profile and registration preserved. The user confirmed a normal browser download opened IDMXL and started automatically without Resume. Completion of that specific captured file remains separate from the two independently hashed native desktop test transfers.
+
+
+19 October final runtime checkpoint: browser-assisted compatibility and the native database writer-conflict fix are saved in runtime commit `42a62c9`. The full local suite passes 168 checks; eight repeated debug and eight release native background cases pass. Windows CI is green. Chrome browser-assisted capture/Pause/Resume is confirmed by the user. Completion/hash of that browser file remains unverified. The normal-Windows update helper is tested and awaits user execution to apply the newest paired binaries outside the desktop tool's redirected cache. Source/UI scope, unsigned manual updates and broader qualification limits remain as documented above.
