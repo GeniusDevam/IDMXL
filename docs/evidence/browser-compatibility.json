@@ -126,8 +126,22 @@
     "file_hashes_verified": true,
     "no_runtime_python_required": true,
     "rejects_redirected_tool_cache": true,
-    "real_update_status": "pending_user_execution",
-    "reason": "A tool-launched interface resolved a separate cached profile and could not load the normal history; that interface was exited. The helper must run in a normal Windows session."
+    "real_update_status": "completed",
+    "reason": "The user ran the helper from a normal File Explorer session. Its non-isolated success receipt verifies the installed files, history preservation and queue restoration.",
+    "real_update_verified": {
+      "success": true,
+      "isolated_test": false,
+      "extension_version": "0.1.4",
+      "history_ids_preserved": true,
+      "queue_was_running": true,
+      "queue_restored": true,
+      "engine_sha256": "7042c5125a5dcba3e9a192f2711b96133c7a3e289d640a16dc5a34943a7c34c9",
+      "desktop_sha256": "5c0c8d20f585ef9b418d1ff73057f89055d039a91697603aed5586b5ee24a118",
+      "runtime_files_verified": 13,
+      "registry_changed": false,
+      "completed_utc": "2026-10-19T13:24:16.5252303Z"
+    },
+    "normal_profile_history_confirmed_by_user": true
   },
   "previous_installed_verification": {
     "extension_version": "0.1.4",
@@ -139,5 +153,17 @@
     "computer_control": "released",
     "interfaces_force_closed": false,
     "interface_normal_exit_and_reopen": true
+  },
+  "installed": {
+    "extension_version": "0.1.4",
+    "runtime_files_verified": 13,
+    "engine_sha256": "7042c5125a5dcba3e9a192f2711b96133c7a3e289d640a16dc5a34943a7c34c9",
+    "desktop_sha256": "5c0c8d20f585ef9b418d1ff73057f89055d039a91697603aed5586b5ee24a118",
+    "history_ids_preserved": true,
+    "background_queue_restored": true,
+    "normal_profile_history_confirmed_by_user": true,
+    "registry_changed": false,
+    "computer_control": "released",
+    "qualification": "Normal-session helper update on existing installation; full NSIS upgrade not repeated."
   }
 }
