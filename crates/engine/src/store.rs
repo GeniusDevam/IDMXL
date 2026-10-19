@@ -164,6 +164,19 @@ impl Store {
         self.insert(request, Some(request_id), false, "Default", None, None)
     }
 
+    pub fn handoff_job(&self, request_id: &str) -> Result<Option<JobView>> {
+        use rusqlite::OptionalExtension;
+        let id: Option<String> = self
+            .db
+            .query_row(
+                "SELECT job_id FROM handoffs WHERE request_id=?1",
+                [request_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        id.map(|id| self.view(&id)).transpose()
+    }
+
     pub(crate) fn insert(
         &self,
         request: AddJob,
@@ -310,7 +323,11 @@ impl Store {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
         let source = String::from_utf8(platform::unprotect(&data.1)?)?;
-        let retry_not_before = self.retry_deadline(&source)?;
+        let retry_not_before = if self.setting_bool(&format!("retry_override:{id}"), false)? {
+            None
+        } else {
+            self.retry_deadline(&source)?
+        };
         Ok(Job {
             id: data.0,
             url: source,
@@ -347,6 +364,9 @@ impl Store {
         view.created_ms = self
             .db
             .query_row("SELECT created FROM jobs WHERE id=?1", [id], |r| r.get(0))?;
+        if self.setting_bool(&format!("file_deleted:{id}"), false)? {
+            view.file_available = false;
+        }
         view.queue_window_open = self.queue_open(&view.policy.queue_name)?;
         (view.transfer_requests, view.failed_requests) = self.request_counts(id)?;
         Ok(view)

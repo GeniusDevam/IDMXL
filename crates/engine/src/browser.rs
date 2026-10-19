@@ -467,13 +467,15 @@ impl Store {
         let Some(mut record) = self.browser_record(id)? else {
             bail!("job_not_found");
         };
-        if !["pause", "resume", "cancel", "show"].contains(&action) {
+        if !["pause", "resume", "cancel", "show", "delete"].contains(&action) {
             bail!("invalid_control_action");
         }
         if action == "resume" && !record.report.can_resume {
             bail!("browser_cannot_resume");
         }
-        if action != "show" && ["completed", "canceled"].contains(&record.report.state.as_str()) {
+        if !["show", "delete"].contains(&action)
+            && ["completed", "canceled"].contains(&record.report.state.as_str())
+        {
             bail!("job_not_interruptible");
         }
         let command = BrowserCommand {

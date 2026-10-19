@@ -5,6 +5,7 @@ pub mod capture;
 pub mod engine;
 pub mod everyday;
 mod fault;
+pub mod management;
 pub mod manifests;
 pub mod media;
 mod media_helper;

@@ -36,6 +36,9 @@ pub struct CaptureStatus {
 
 impl Store {
     pub fn capture_status(&self, request_id: &str) -> Result<CaptureStatus> {
+        if self.location_declined(request_id)? {
+            bail!("user_cancelled");
+        }
         let (id, phase, expires): (String,String,i64) = self.db.query_row(
             "SELECT h.job_id,c.phase,c.expires FROM capture_handoffs c JOIN handoffs h USING(request_id) WHERE request_id=?1",
             [request_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).context("handoff_not_found")?;
@@ -57,6 +60,23 @@ impl Store {
         url: &str,
         filename: &str,
         directory: &Path,
+        etag: &str,
+        total: u64,
+    ) -> Result<CaptureStatus> {
+        self.prepare_capture_at(
+            request_id,
+            url,
+            &directory.join(format!("{request_id}-{filename}")),
+            etag,
+            total,
+        )
+    }
+
+    pub fn prepare_capture_at(
+        &self,
+        request_id: &str,
+        url: &str,
+        destination: &Path,
         etag: &str,
         total: u64,
     ) -> Result<CaptureStatus> {
@@ -102,7 +122,7 @@ impl Store {
         self.insert(
             AddJob {
                 url: source.into(),
-                destination: directory.join(format!("{request_id}-{filename}")),
+                destination: destination.to_owned(),
                 replayable: true,
                 expected_sha256: None,
             },

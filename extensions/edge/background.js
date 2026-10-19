@@ -39,6 +39,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     request_id: crypto.randomUUID(),
     url: source.href,
     filename,
+    confirm_destination:true,
   };
   try {
     const reply = await chrome.runtime.sendNativeMessage(HOST, request);

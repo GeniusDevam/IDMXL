@@ -56,3 +56,11 @@ test('browser warnings need user attention and are never accepted automatically'
 test('turning off compatibility or disposing never cancels browser downloads',async()=>{
   const f=await fixture();await f.bridge.track(f.item);const before=f.messages.length;f.state.captureConfig.enabled=false;await f.bridge.flush();assert.equal(f.messages.length,before);assert.deepEqual(f.actions,[]);f.bridge.dispose();f.state.captureConfig.enabled=true;await f.bridge.track(f.item);assert.equal(f.messages.length,before);
 });
+
+test('a confirmed desktop delete removes only the matching browser file, once',async()=>{
+  const f=await fixture();Object.assign(f.item,{state:'complete',exists:true});
+  f.api.downloads.removeFile=async id=>{assert.equal(id,f.item.id);f.actions.push('removeFile');f.item.exists=false;};
+  await f.bridge.track(f.item);f.command('delete');await f.bridge.flush();await f.bridge.flush();
+  assert.deepEqual(f.actions,['removeFile']);assert(f.messages.some(m=>m.reports.some(r=>r.state==='completed'&&!r.exists)));
+  const other=await fixture();await other.bridge.track(other.item);other.command('delete');other.item.startTime='changed';await other.bridge.flush();assert.deepEqual(other.actions,[]);
+});

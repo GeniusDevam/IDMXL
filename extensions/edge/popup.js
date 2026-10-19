@@ -5,6 +5,13 @@ import {
 } from "./capture-settings.js";
 import { captureReason } from "./capture-diagnostics.js";
 
+if (typeof document.createElement === "function") {
+  void import("./downloads-panel.js").then(({startDownloadPanel})=> {
+    const stop=startDownloadPanel(chrome,document);
+    window.addEventListener("pagehide",stop,{once:true});
+  });
+}
+
 chrome.storage.local.get("lastStatus").then(({ lastStatus }) => {
   if (lastStatus) document.getElementById("status").textContent = lastStatus;
 });
@@ -195,6 +202,7 @@ document.getElementById("queue-media").addEventListener("click", async () => {
       audio_selection: audioTracks.value || null,
       container: document.getElementById("media-container").value,
       audio_only: document.getElementById("media-audio-only").checked,
+      confirm_destination:true,
     });
     if (
       reply.version !== 3 ||

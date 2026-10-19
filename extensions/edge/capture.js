@@ -5,7 +5,7 @@ import { createBrowserBridge } from "./browser-bridge.js";
 
 const HOST = "dev.idmxl.host";
 export const MINIMUM_CAPTURE_BYTES = 1_000_000;
-const terminal = new Set(["committed", "released"]);
+const terminal = new Set(["committed", "released", "user_canceled"]);
 function networkUrl(value) {
   const url = new URL(value);
   url.hash = "";
@@ -126,7 +126,9 @@ export function createCapture(
       kind,
       request_id: record.request_id,
       ...fields,
+      ...(kind === "prepare" ? {confirm_destination:true} : {}),
     });
+    if (reply?.error === "user_cancelled") throw new Error("user_cancelled");
     if (
       reply?.version !== 2 ||
       reply.accepted !== true ||
@@ -198,6 +200,12 @@ export function createCapture(
     if (terminal.has(record.phase)) return;
     try {
       const download = await item(record);
+      if(record.phase === "cancel_user_requested") {await cancelChosenDownload(record);return;}
+      if(!["cancel_requested","attention"].includes(record.phase)) {
+        try {await native(record,"status");} catch(error) {
+          if(error?.message==="user_cancelled") {await cancelChosenDownload(record);return;}
+        }
+      }
       if (
         ["cancel_requested", "attention"].includes(record.phase) &&
         download.state === "interrupted" &&
@@ -206,11 +214,24 @@ export function createCapture(
         await finish(record);
       else await release(record);
     } catch {
+      if(record.phase === "cancel_user_requested") {
+        await status("Download cancellation is pending. Check the browser's Downloads page.");
+        return;
+      }
       await setPhase(record, "attention");
       await status(
         "A browser handoff needs attention. Check IDMXL and the browser's Downloads page. If the link expired, obtain a fresh link.",
       );
     }
+  }
+  async function cancelChosenDownload(record) {
+    // Persist intent before touching Chrome, so a restart never resumes a
+    // download whose location dialog was explicitly canceled.
+    await setPhase(record,"cancel_user_requested");
+    const current=await item(record);
+    if(current.state==="in_progress") await api.downloads.cancel(current.id);
+    await setPhase(record,"user_canceled");
+    await status("Download canceled. No location was confirmed.");
   }
   function before(details) {
     if (stopped) return;
@@ -362,6 +383,7 @@ export function createCapture(
         await release(record);
         return;
       }
+      if(typeof ready.filename==="string" && ready.filename.length<=255)record.filename=ready.filename;
       await setPhase(record, "prepared");
       const current = await item(record);
       const latest = (await api.storage.local.get("captureConfig")).captureConfig;
@@ -378,8 +400,11 @@ export function createCapture(
       await setPhase(record, "cancel_requested");
       await api.downloads.cancel(download.id);
       await finish(record);
-    } catch {
-      await recoverOne(record);
+    } catch (error) {
+      if (error?.message === "user_cancelled") {
+        // A declined destination must not silently fall back to Chrome.
+        await cancelChosenDownload(record);
+      } else await recoverOne(record);
     }
   }
   return {
@@ -401,11 +426,10 @@ export function createCapture(
         suggest();
         return false;
       }
-      // Consider the tentative name early, without delaying Chrome's target
-      // selection or renaming its file while asynchronous handoff checks run.
-      void enqueue(() => created(download)).catch(() => {});
-      suggest();
-      return false;
+      // Keep Chrome's target-selection dialog pending until ownership is
+      // resolved. A committed native takeover has already canceled this item.
+      void enqueue(() => created(download)).catch(() => {}).finally(() => suggest());
+      return true;
     },
     changed: (delta) =>
       stopped ? Promise.resolve() : enqueue(async () => {

@@ -897,3 +897,9 @@ label > small {
     transition: none !important;
   }
 }
+.download-management {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 22px;margin-bottom:22px;border:1px solid var(--border, #d6dedb);border-radius:14px;}
+.download-management p {margin:7px 0;overflow-wrap:anywhere;}
+.download-management .heading-actions {flex-wrap:wrap;}
+.file-controls {display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px;}
+.file-controls p {width:100%;overflow-wrap:anywhere;}
+.danger {color:#b64040;}

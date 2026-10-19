@@ -8,6 +8,7 @@ import { displayPath } from "./paths";
 import { MediaDialog, MediaDetails } from "./media";
 import { Updates } from "./updates";
 import { importableLinks } from "./links";
+import { DownloadManagement, FileControls } from "./controls";
 
 type Job = {
   id: string;
@@ -295,14 +296,18 @@ function App() {
 
   async function action(
     job: Job,
-    kind: "start" | "pause" | "cancel" | "queue",
+    kind: "start" | "retry" | "pause" | "cancel" | "queue",
   ) {
     setWorking(job.id);
     setError("");
     try {
       await invoke(
-        kind === "start" ? "start_job" : "control_job",
-        kind === "start"
+        kind === "retry"
+          ? "retry_job"
+          : kind === "start"
+            ? "start_job"
+            : "control_job",
+        kind === "start" || kind === "retry"
           ? { id: job.id }
           : {
               id: job.id,
@@ -328,7 +333,11 @@ function App() {
     } catch {
       /* User may still be typing. */
     }
-    const chosen = await save({ title: "Save download as", defaultPath: name });
+    const folder = displayPath(await invoke<string>("download_location"));
+    const chosen = await save({
+      title: "Save download as",
+      defaultPath: `${folder}\\${name}`,
+    });
     if (chosen) setDestination(chosen);
   }
   async function submit(event: React.FormEvent) {
@@ -475,6 +484,13 @@ function App() {
               </button>
             </div>
           )}
+          {native && (
+            <DownloadManagement
+              jobs={jobs}
+              onChanged={() => void refresh()}
+              formatError={friendly}
+            />
+          )}
           {showAbout && (
             <section className="about-panel">
               <strong>A dependable foundation, in progress.</strong>
@@ -613,7 +629,12 @@ function App() {
                   : "Queue stopped"}
               </small>
             </div>
-            {jobs.some(job=>job.mode === "browser") && <p className="form-note">Browser transfers use Chrome or Edge. Use each file's controls; the IDMXL queue settings apply to its own engine.</p>}
+            {jobs.some((job) => job.mode === "browser") && (
+              <p className="form-note">
+                Browser transfers use Chrome or Edge. Use each file's controls;
+                the IDMXL queue settings apply to its own engine.
+              </p>
+            )}
             <div className="panel-toolbar">
               <h2 id="downloads-title">
                 {filter === "all"
@@ -655,7 +676,9 @@ function App() {
                         {job.name}
                       </button>
                       <p className="job-source">{job.source}</p>
-                      {job.mode === "browser" && <span className="local-badge">Browser transfer</span>}
+                      {job.mode === "browser" && (
+                        <span className="local-badge">Browser transfer</span>
+                      )}
                       <div
                         className="progress"
                         role="progressbar"
@@ -693,16 +716,17 @@ function App() {
                       )}
                     </div>
                     <div className="job-actions">
-                      {job.mode !== "browser" && ["paused", "failed"].includes(job.state) && (
-                        <button
-                          className="icon-button"
-                          title="Add to automatic queue"
-                          aria-label={`Queue ${job.name}`}
-                          onClick={() => void action(job, "queue")}
-                        >
-                          <Icon name="plus" />
-                        </button>
-                      )}
+                      {job.mode !== "browser" &&
+                        ["paused", "failed"].includes(job.state) && (
+                          <button
+                            className="icon-button"
+                            title="Add to automatic queue"
+                            aria-label={`Queue ${job.name}`}
+                            onClick={() => void action(job, "queue")}
+                          >
+                            <Icon name="plus" />
+                          </button>
+                        )}
                       {job.file_available && (
                         <button
                           className="icon-button"
@@ -730,19 +754,45 @@ function App() {
                           <Icon name="pause" />
                         </button>
                       ) : (
-                        !["completed", "canceled", "attention"].includes(job.state) && (
+                        !["completed", "canceled", "attention"].includes(
+                          job.state,
+                        ) && (
                           <button
-                            className="icon-button"
+                            className={
+                              job.state === "failed" && job.mode !== "browser"
+                                ? "secondary retry-button"
+                                : "icon-button"
+                            }
                             title={
                               job.mode !== "browser" && nativeActive.length
                                 ? "Pause the current download before starting another"
-                                : "Start or resume"
+                                : job.state === "failed" &&
+                                    job.mode !== "browser"
+                                  ? "Retry now"
+                                  : "Start or resume"
                             }
-                            aria-label={`Start ${job.name}`}
-                            disabled={Boolean(working) || (job.mode === "browser" ? !job.replayable : nativeActive.length > 0)}
-                            onClick={() => void action(job, "start")}
+                            aria-label={`${job.state === "failed" && job.mode !== "browser" ? "Retry now" : "Start"} ${job.name}`}
+                            disabled={
+                              Boolean(working) ||
+                              (job.mode === "browser"
+                                ? !job.replayable
+                                : nativeActive.length > 0)
+                            }
+                            onClick={() =>
+                              void action(
+                                job,
+                                job.state === "failed" && job.mode !== "browser"
+                                  ? "retry"
+                                  : "start",
+                              )
+                            }
                           >
-                            <Icon name="play" />
+                            {job.state === "failed" &&
+                            job.mode !== "browser" ? (
+                              "Retry now"
+                            ) : (
+                              <Icon name="play" />
+                            )}
                           </button>
                         )
                       )}
@@ -751,7 +801,11 @@ function App() {
                       ) && (
                         <button
                           className="icon-button subtle"
-                          title={job.mode === "browser" ? "Cancel browser download" : "Cancel, keeping partial files"}
+                          title={
+                            job.mode === "browser"
+                              ? "Cancel browser download"
+                              : "Cancel, keeping partial files"
+                          }
                           aria-label={`Cancel ${job.name}`}
                           disabled={working === job.id}
                           onClick={() => void action(job, "cancel")}
@@ -807,7 +861,20 @@ function App() {
           </section>
           {selected && (
             <section className="details">
-              {selected.mode === "browser" && <p className="form-note">Browser transfer: Chrome or Edge handles this file using its existing browser session. Keep that browser open. IDMXL shows progress and sends pause, resume, cancel and show-in-folder requests; native queue limits and schedules do not apply.</p>}
+              <FileControls
+                key={selected.id}
+                job={selected}
+                onChanged={() => void refresh()}
+                formatError={friendly}
+              />
+              {selected.mode === "browser" && (
+                <p className="form-note">
+                  Browser transfer: Chrome or Edge handles this file using its
+                  existing browser session. Keep that browser open. IDMXL shows
+                  progress and sends pause, resume, cancel and show-in-folder
+                  requests; native queue limits and schedules do not apply.
+                </p>
+              )}
               {policyDraft && selected.mode !== "browser" && (
                 <form
                   className="policy-form"
@@ -952,11 +1019,13 @@ function App() {
                   </button>
                 </form>
               )}
-              {selected.mode !== "browser" && <QueueHours
-                queueName={selected.policy.queue_name}
-                formatError={friendly}
-                onSaved={() => void refresh()}
-              />}
+              {selected.mode !== "browser" && (
+                <QueueHours
+                  queueName={selected.policy.queue_name}
+                  formatError={friendly}
+                  onSaved={() => void refresh()}
+                />
+              )}
               <div>
                 <h2>Download details</h2>
                 <button
@@ -972,17 +1041,25 @@ function App() {
                 <dd>{displayPath(selected.destination)}</dd>
                 <dt>Transfer</dt>
                 <dd>
-                  {selected.mode === "browser" ? "Browser transfer" : selected.mode === "media"
-                    ? "Original media tracks with local assembly"
-                    : selected.mode === "ranged"
-                      ? "Verified byte ranges"
-                      : "Single stream"}
+                  {selected.mode === "browser"
+                    ? "Browser transfer"
+                    : selected.mode === "media"
+                      ? "Original media tracks with local assembly"
+                      : selected.mode === "ranged"
+                        ? "Verified byte ranges"
+                        : "Single stream"}
                 </dd>
                 <dt>SHA-256</dt>
-                <dd>{selected.mode === "browser" ? "Not computed by IDMXL for browser transfers" : selected.sha256 || "Available after verification"}</dd>
+                <dd>
+                  {selected.mode === "browser"
+                    ? "Not computed by IDMXL for browser transfers"
+                    : selected.sha256 || "Available after verification"}
+                </dd>
                 <dt>Transfer requests / failed requests</dt>
                 <dd>
-                  {selected.mode === "browser" ? "Managed by the browser" : `${selected.transfer_requests} / ${selected.failed_requests}`}
+                  {selected.mode === "browser"
+                    ? "Managed by the browser"
+                    : `${selected.transfer_requests} / ${selected.failed_requests}`}
                 </dd>
                 <dt>Job</dt>
                 <dd>{selected.id}</dd>
@@ -1162,11 +1239,29 @@ function App() {
 function friendly(error: unknown): string {
   const code = String(error).replace(/^Error:\s*/, "");
   const messages: Record<string, string> = {
-    browser_control_failed: "The browser could not apply that action. Check its Downloads page and try again.",
-    browser_disconnected: "The browser connection is offline. Open Chrome or Edge with IDMXL capture enabled to update this transfer.",
-    browser_attention: "This download needs attention in the browser. IDMXL will not dismiss browser warnings or approvals.",
-    browser_interrupted: "The browser interrupted this download. Resume it if available, or check the browser's Downloads page.",
-    browser_cannot_resume: "The browser cannot resume this transfer. Start a new download from its page if needed.",
+    confirmation_required: "Confirm the action before continuing.",
+    media_destination_change_unsupported:
+      "Choose the media output location before adding it. You can change the default folder here for future downloads.",
+    destination_change_requires_pause:
+      "Pause this download before changing its location.",
+    delete_requires_stopped_job:
+      "The download is still stopping. Wait briefly and try deleting again.",
+    file_identity_changed:
+      "The file at this location changed. IDMXL kept it to avoid deleting a different file.",
+    file_in_use:
+      "The file is in use. Close applications using it and try again.",
+    file_delete_failed:
+      "Windows could not delete this file. Check that it is not in use.",
+    browser_control_failed:
+      "The browser could not apply that action. Check its Downloads page and try again.",
+    browser_disconnected:
+      "The browser connection is offline. Open Chrome or Edge with IDMXL capture enabled to update this transfer.",
+    browser_attention:
+      "This download needs attention in the browser. IDMXL will not dismiss browser warnings or approvals.",
+    browser_interrupted:
+      "The browser interrupted this download. Resume it if available, or check the browser's Downloads page.",
+    browser_cannot_resume:
+      "The browser cannot resume this transfer. Start a new download from its page if needed.",
     source_refresh_unsupported:
       "This download cannot have its link replaced. Add the renewed link as a new download.",
     source_identity_unproven:

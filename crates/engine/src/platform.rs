@@ -240,6 +240,57 @@ pub fn is_reparse(path: &Path) -> Result<bool> {
     }
 }
 
+/// Delete through the verified handle on Windows, so a raced path replacement
+/// cannot redirect deletion to another file. Do not share write/delete access.
+pub fn delete_owned_file(path: &Path, expected: Option<&str>) -> Result<()> {
+    if is_reparse(path)? {
+        bail!("file_identity_changed");
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_DISPOSITION_INFO, FILE_SHARE_READ, FileDispositionInfo, SetFileInformationByHandle,
+        };
+        let file = std::fs::OpenOptions::new()
+            .access_mode(0x80000000 | 0x00010000)
+            .share_mode(FILE_SHARE_READ)
+            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .context("file_in_use")?;
+        use std::os::windows::fs::MetadataExt;
+        if file.metadata()?.file_attributes() & 0x400 != 0
+            || !file.metadata()?.is_file()
+            || expected.is_some_and(|id| file_id(&file).ok().as_deref() != Some(id))
+        {
+            bail!("file_identity_changed");
+        }
+        let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+        if unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfo,
+                (&info as *const FILE_DISPOSITION_INFO).cast(),
+                std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+            )
+        } == 0
+        {
+            bail!("file_delete_failed");
+        }
+        drop(file);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let file = File::open(path)?;
+        if expected.is_some_and(|id| file_id(&file).ok().as_deref() != Some(id)) {
+            bail!("file_identity_changed");
+        }
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+}
+
 pub fn file_id(file: &File) -> Result<String> {
     #[cfg(windows)]
     {

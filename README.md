@@ -16,6 +16,7 @@
 | Expired links | Replace a file URL; retain saved bytes only when the original trusted hash and strict resource-identity checks allow it. |
 | Verification | Optional expected SHA-256, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
 | Desktop controls | Searchable history, progress/speed/ETA, light/dark themes, reveal in folder, tray support and background downloads after closing the interface. |
+| Locations and file actions | Native save-location confirmation, suggested default after four uses, editable default and paused file destinations, immediate retry, confirmed file deletion and confirmed Pause/Cancel/Delete all. |
 | Completion alerts | Optional Windows notifications while the interface is running; disabled by default. |
 | Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, native capture over 1 MB plus browser-assisted progress and controls for other ordinary downloads, and clicked media-element discovery. See qualification details below. |
 | Video and audio | Direct media, restricted clear HLS VOD and static DASH; exact track selection, audio-only output and verified assembly without re-encoding or upscaling. |
@@ -73,13 +74,15 @@ Closing the window hides the interface to the tray while the worker continues. *
 
 History and settings are stored in `%LOCALAPPDATA%\IDMXL`. Downloaded files stay in the destinations you choose. Canceling a native engine job preserves its partial files. Browser transfers follow the browser's cancellation and partial-file behavior.
 
+The app offers **Change default folder**, per-file location changes for paused native file jobs, **Retry now**, confirmed **Delete file from PC**, and confirmed **Pause all / Cancel all / Delete all files**. Native browser captures ask where to save before starting; a folder becomes the suggested default after four confirmed uses. See the [download controls guide](docs/DOWNLOAD-CONTROLS.md) for cancellation, file-deletion and browser-transfer details.
+
 ## Connect Edge or Chrome
 
 Load `extensions/edge` as an unpacked extension in an Edge or Chrome development profile, copy its extension ID and register the native host for that browser. The folder works with both browsers; Chrome registration uses `-Browser Chrome`. The [browser setup guide](docs/BROWSER-HANDOFF.md) gives the exact commands and permission details.
 
 Right-click a public file link and choose **Queue link in IDMXL**. The application must be built or installed and registered with that exact extension ID. Run registration from a normal Windows PowerShell session. Restart the browser fully after setup if its connection check cannot find the host.
 
-For automatic capture, open extension **0.1.4**, choose **Enable automatic capture** and approve the browser permission request if shown. Already-enabled all-sites capture enables browser-assisted compatibility after reloading the extension and updating the matching app. Previously saved folder-only rules retain their limited scope until you enable all-sites capture.
+For automatic capture, open extension **0.1.5**, choose **Enable automatic capture** and approve the browser permission request if shown. Already-enabled all-sites capture enables browser-assisted compatibility after reloading the extension and updating the matching app. Previously saved folder-only rules retain their limited scope until you enable all-sites capture.
 
 There are two transfer modes:
 

@@ -7,6 +7,8 @@ use std::{
 
 use idmxl_engine::{AddJob, Engine, JobPolicy, JobView, Store};
 use tauri::Manager;
+mod management;
+use management::{change_destination, download_location, manage_downloads, retry_job};
 
 fn directory() -> PathBuf {
     std::env::var_os("IDMXL_STATE_DIR")
@@ -46,14 +48,19 @@ async fn add_job(
     expected_sha256: Option<String>,
 ) -> Result<JobView, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        open()?
+        let store = open()?;
+        let job = store
             .add(AddJob {
                 url,
                 destination: destination.into(),
                 replayable,
                 expected_sha256,
             })
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        store
+            .remember_destination(&job.id, std::path::Path::new(&job.destination))
+            .map_err(|e| e.to_string())?;
+        Ok(job)
     })
     .await
     .map_err(|_| "operation_failed".to_owned())?
@@ -62,74 +69,8 @@ async fn add_job(
 #[tauri::command]
 async fn start_job(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let store = open()?;
-        if store.is_browser_transfer(&id).map_err(|e| e.to_string())? {
-            return store
-                .browser_control(&id, "resume")
-                .map(|_| ())
-                .map_err(|e| e.to_string());
-        }
-        let job = store.view(&id).map_err(|_| "job_not_found".to_owned())?;
-        if matches!(job.state.as_str(), "completed" | "canceled") {
-            return Err("job_not_runnable".into());
-        }
-        let engine = Engine::new(store);
-        engine
-            .reconcile()
-            .map_err(|_| "history_unavailable".to_owned())?;
-        if engine
-            .store
-            .list()
-            .map_err(|_| "history_unavailable".to_owned())?
-            .iter()
-            .any(|j| matches!(j.state.as_str(), "downloading" | "pausing" | "verifying"))
-        {
-            return Err("engine_busy".into());
-        }
-        #[cfg(debug_assertions)]
-        let executable =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../target/debug/idmxl.exe");
-        #[cfg(not(debug_assertions))]
-        let executable = std::env::current_exe()
-            .map_err(|_| "engine_binary_missing".to_owned())?
-            .parent()
-            .ok_or("engine_binary_missing")?
-            .join("idmxl.exe");
-        if !executable.is_file() {
-            return Err("engine_binary_missing".into());
-        }
-        let mut command = Command::new(executable);
-        command
-            .arg("--state-dir")
-            .arg(directory())
-            .arg("run")
-            .arg(id)
-            .arg("--connections")
-            .arg(job.policy.connections.to_string())
-            .arg("--retries")
-            .arg(job.policy.retries.to_string())
-            .arg("--speed-limit")
-            .arg(job.policy.speed_limit.to_string())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        if job.policy.adaptive {
-            command.arg("--adaptive");
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        // Child::drop does not terminate the CLI: downloads continue after the window closes.
-        let child = command
-            .spawn()
-            .map_err(|_| "engine_launch_failed".to_owned())?;
-        // Reap its process handle in a detached thread. The engine owns all transfer state.
-        std::thread::spawn(move || {
-            let mut child = child;
-            let _ = child.wait();
-        });
+        idmxl_engine::application::control_download(&open()?, &engine_binary()?, &id, "start")
+            .map_err(|e| e.to_string())?;
         Ok(())
     })
     .await
@@ -213,7 +154,18 @@ async fn save_folder_settings(
 #[tauri::command]
 async fn add_links(batch: idmxl_engine::LinkBatch) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(serde_json::json!({"results":open()?.add_links(batch).map_err(|e|e.to_string())?}))
+        let store = open()?;
+        let results = store.add_links(batch).map_err(|e| e.to_string())?;
+        for result in &results {
+            if result.status == "queued"
+                && let Some(job) = &result.job
+            {
+                store
+                    .remember_destination(&job.id, std::path::Path::new(&job.destination))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(serde_json::json!({"results":results}))
     })
     .await
     .map_err(|_| "operation_failed".to_owned())?
@@ -425,7 +377,12 @@ async fn inspect_media(url: String) -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn add_media(request: idmxl_engine::media::MediaRequest) -> Result<JobView, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        open()?.add_media(request, false).map_err(|e| e.to_string())
+        let store = open()?;
+        let job = store.add_media(request, false).map_err(|e| e.to_string())?;
+        store
+            .remember_destination(&job.id, std::path::Path::new(&job.destination))
+            .map_err(|e| e.to_string())?;
+        Ok(job)
     })
     .await
     .map_err(|_| "operation_failed".to_owned())?
@@ -559,7 +516,7 @@ fn main() {
             let menu = Menu::with_items(app, &[&show, &pause, &exit])?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("IDMXL — background downloads")
+                .tooltip("IDMXL â€” background downloads")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         show_main(app);
@@ -609,7 +566,11 @@ fn main() {
             install_update,
             refresh_source,
             completion_settings,
-            quit_interface
+            quit_interface,
+            download_location,
+            change_destination,
+            retry_job,
+            manage_downloads
         ])
         .run(tauri::generate_context!())
         .expect("IDMXL desktop runtime failed");

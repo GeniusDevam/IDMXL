@@ -32,6 +32,9 @@ struct Request {
     client_id: Option<String>,
     reports: Option<Vec<idmxl_engine::browser::BrowserReport>>,
     acknowledgements: Option<Vec<idmxl_engine::browser::BrowserAck>>,
+    confirm_destination: Option<bool>,
+    job_id: Option<String>,
+    action: Option<String>,
 }
 
 fn safe_name(name: Option<&str>) -> String {
@@ -52,6 +55,32 @@ fn safe_name(name: Option<&str>) -> String {
         "download.bin".into()
     } else {
         text.into()
+    }
+}
+
+fn chosen_destination(
+    store: &Store,
+    id: &str,
+    name: &str,
+    directory: &std::path::Path,
+    confirm: bool,
+) -> Result<PathBuf> {
+    if store.location_declined(id)? {
+        bail!("user_cancelled");
+    }
+    if let Some(job) = store.handoff_job(id)? {
+        return Ok(job.destination.into());
+    }
+    if !confirm {
+        return Ok(directory.join(format!("{id}-{name}")));
+    }
+    let default = store.suggested_directory(directory)?.join(name);
+    match idmxl_engine::management::choose_download_path(&default)? {
+        Some(path) => Ok(path),
+        None => {
+            store.decline_location(id)?;
+            bail!("user_cancelled");
+        }
     }
 }
 
@@ -113,12 +142,57 @@ pub fn serve(origin: &str) -> Result<()> {
                     )
                 || request.version == 3
                     && matches!(request.kind.as_str(), "media_inspect" | "media_enqueue")
-                || request.version == 4 && request.kind == "browser_sync")
+                || request.version == 4 && request.kind == "browser_sync"
+                || request.version == 5 && matches!(request.kind.as_str(), "jobs" | "control"))
             {
                 bail!("unsupported_message");
             }
             let id = uuid::Uuid::parse_str(&request.request_id).context("invalid_request_id")?;
+            if request.version == 5 {
+                if request.url.is_some()
+                    || request.filename.is_some()
+                    || request.etag.is_some()
+                    || request.total.is_some()
+                    || request.browser_cancelled.is_some()
+                    || request.selection.is_some()
+                    || request.audio_selection.is_some()
+                    || request.container.is_some()
+                    || request.audio_only.is_some()
+                    || request.client_id.is_some()
+                    || request.reports.is_some()
+                    || request.acknowledgements.is_some()
+                    || request.confirm_destination.is_some()
+                {
+                    bail!("invalid_message");
+                }
+                if request.kind == "control" {
+                    let job = request.job_id.context("invalid_message")?;
+                    let action = request.action.context("invalid_message")?;
+                    if !["start", "pause", "cancel", "retry"].contains(&action.as_str()) {
+                        bail!("invalid_message");
+                    }
+                    idmxl_engine::application::control_download(
+                        &store,
+                        &std::env::current_exe()?,
+                        &job,
+                        &action,
+                    )?;
+                } else if request.job_id.is_some() || request.action.is_some() {
+                    bail!("invalid_message");
+                }
+                let jobs:Vec<_>=store.desktop_jobs()?.into_iter().filter(|j|!["completed","canceled"].contains(&j.state.as_str())).take(100).map(|j|
+                    serde_json::json!({"id":j.id,"name":j.name,"state":j.state,"mode":j.mode,"received_bytes":j.received_bytes,"total_bytes":j.total_bytes,"speed_bytes_per_second":j.speed_bytes_per_second,"can_resume":j.mode!="browser"||j.replayable})).collect();
+                return Ok(
+                    serde_json::json!({"version":5,"accepted":true,"request_id":id.to_string(),"jobs":jobs}),
+                );
+            }
+            if request.job_id.is_some() || request.action.is_some() {
+                bail!("invalid_message");
+            }
             if request.version == 4 {
+                if request.confirm_destination.is_some() {
+                    bail!("invalid_message");
+                }
                 if request.url.is_some()
                     || request.filename.is_some()
                     || request.etag.is_some()
@@ -183,18 +257,32 @@ pub fn serve(origin: &str) -> Result<()> {
                     safe_name(request.filename.as_deref()),
                     container
                 );
+                let destination = chosen_destination(
+                    &store,
+                    &id.to_string(),
+                    &format!("{}.{}", safe_name(request.filename.as_deref()), container),
+                    &directory,
+                    request.confirm_destination == Some(true),
+                )?;
                 let job = store.add_media_handoff(
                     idmxl_engine::media::MediaRequest {
                         url,
                         selection: request.selection.context("invalid_message")?,
                         audio_selection: request.audio_selection,
                         audio_url: None,
-                        destination: directory.join(name),
+                        destination: if request.confirm_destination == Some(true) {
+                            destination.clone()
+                        } else {
+                            directory.join(name)
+                        },
                         container,
                         audio_only: request.audio_only.unwrap_or(false),
                     },
                     &id.to_string(),
                 )?;
+                if request.confirm_destination == Some(true) {
+                    store.remember_destination(&id.to_string(), &destination)?;
+                }
                 return Ok(
                     serde_json::json!({"version":3,"accepted":true,"request_id":id.to_string(),"job_id":job.id}),
                 );
@@ -208,19 +296,31 @@ pub fn serve(origin: &str) -> Result<()> {
             }
             if request.version == 2 {
                 let status = match request.kind.as_str() {
-                    "prepare" => store.prepare_capture(
-                        &id.to_string(),
-                        request.url.as_deref().context("invalid_message")?,
-                        &safe_name(request.filename.as_deref()),
-                        &directory,
-                        request.etag.as_deref().context("invalid_message")?,
-                        request
-                            .total
-                            .as_deref()
-                            .context("invalid_message")?
-                            .parse()
-                            .context("invalid_message")?,
-                    )?,
+                    "prepare" => {
+                        let destination = chosen_destination(
+                            &store,
+                            &id.to_string(),
+                            &safe_name(request.filename.as_deref()),
+                            &directory,
+                            request.confirm_destination == Some(true),
+                        )?;
+                        let status = store.prepare_capture_at(
+                            &id.to_string(),
+                            request.url.as_deref().context("invalid_message")?,
+                            &destination,
+                            request.etag.as_deref().context("invalid_message")?,
+                            request
+                                .total
+                                .as_deref()
+                                .context("invalid_message")?
+                                .parse()
+                                .context("invalid_message")?,
+                        )?;
+                        if request.confirm_destination == Some(true) {
+                            store.remember_destination(&id.to_string(), &destination)?;
+                        }
+                        status
+                    }
                     "status" => store.capture_status(&id.to_string())?,
                     "commit" => {
                         if request.browser_cancelled != Some(true) {
@@ -246,7 +346,7 @@ pub fn serve(origin: &str) -> Result<()> {
                     None
                 };
                 return Ok(
-                    serde_json::json!({"version":2,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"phase":status.phase,"expires":status.expires,"activation":activation}),
+                    serde_json::json!({"version":2,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"filename":store.view(&status.job_id)?.name,"phase":status.phase,"expires":status.expires,"activation":activation}),
                 );
             }
             if request.etag.is_some()
@@ -255,16 +355,25 @@ pub fn serve(origin: &str) -> Result<()> {
             {
                 bail!("invalid_message");
             }
-            let name = format!("{}-{}", id, safe_name(request.filename.as_deref()));
+            let destination = chosen_destination(
+                &store,
+                &id.to_string(),
+                &safe_name(request.filename.as_deref()),
+                &directory,
+                request.confirm_destination == Some(true),
+            )?;
             let job = store.add_handoff(
                 AddJob {
                     url: request.url.context("invalid_message")?,
-                    destination: directory.join(name),
+                    destination: destination.clone(),
                     replayable: false,
                     expected_sha256: None,
                 },
                 &id.to_string(),
             )?;
+            if request.confirm_destination == Some(true) {
+                store.remember_destination(&id.to_string(), &destination)?;
+            }
             // The transaction is committed before this acknowledgement. Nothing cancels browser downloads.
             Ok(
                 serde_json::json!({"version":1,"accepted":true,"request_id":id.to_string(),"job_id":job.id}),
@@ -293,6 +402,13 @@ pub fn serve(origin: &str) -> Result<()> {
                     "invalid_browser_message",
                     "browser_client_conflict",
                     "browser_capacity",
+                    "user_cancelled",
+                    "location_dialog_failed",
+                    "destination_exists",
+                    "destination_in_use",
+                    "engine_busy",
+                    "job_not_found",
+                    "browser_cannot_resume",
                 ];
                 serde_json::json!({"version":1,"accepted":false,"error":if known.contains(&code.as_str()){code.as_str()}else{"handoff_rejected"}})
             }

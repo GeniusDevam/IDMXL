@@ -128,7 +128,8 @@ impl Engine {
         if job.state == "publishing" {
             return self.recover_publication(&job);
         }
-        if self.store.retry_deadline(&job.url)?.is_some() {
+        let explicit_retry = self.store.consume_retry_override(id)?;
+        if self.store.retry_deadline(&job.url)?.is_some() && !explicit_retry {
             bail!("server_retry_pending");
         }
         self.store.begin(id)?;

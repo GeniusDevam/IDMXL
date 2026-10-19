@@ -7,7 +7,7 @@ async function fixture(options={}) {
   let phase='missing', lost=false;const calls=[],messages=[];
   const api={permissions:{contains:async()=>!options.permissionMissing},storage:{local:{get:async key=>({[key]:structuredClone(journal[key])}),set:async value=>Object.assign(journal,structuredClone(value))}},runtime:{sendNativeMessage:async(_,r)=>{
     calls.push(r.kind);messages.push(structuredClone(r));
-    if (r.kind==='prepare') {if(options.prepareFails)throw new Error();phase='ready';if(options.disableDuringPrepare)journal.captureConfig.enabled=false;if(options.dangerDuringPrepare)download.danger='uncommon';if(options.urlChangesDuringPrepare)download.finalUrl+='?changed=1';}
+    if (r.kind==='prepare') {if(options.cancelLocation)return{accepted:false,error:'user_cancelled'};if(options.prepareFails)throw new Error();phase='ready';if(options.disableDuringPrepare)journal.captureConfig.enabled=false;if(options.dangerDuringPrepare)download.danger='uncommon';if(options.urlChangesDuringPrepare)download.finalUrl+='?changed=1';}
     if (r.kind==='abort')phase='aborted';
     if (r.kind==='commit') {phase='committed';if(options.loseCommitReply&&!lost){lost=true;throw new Error();}}
     return {version:2,accepted:true,request_id:r.request_id,job_id:'job',phase,expires:100000,activation:options.activation};
@@ -272,8 +272,8 @@ test('a cookie-dependent file rejected by credential-free native verification re
 test('the early filename event considers fast downloads and releases its default-name callback once',async()=>{
   for(const fail of [false,true]) {
     const f=await fixture({prepareFails:fail});f.observe();f.download.filename='';await f.capture.created(f.download);
-    let suggested=0;assert.equal(f.capture.determiningFilename({...f.download,filename:'C:\\Downloads\\early.zip'},()=>suggested++),false);
-    assert.equal(suggested,1);
+    let suggested=0;assert.equal(f.capture.determiningFilename({...f.download,filename:'C:\\Downloads\\early.zip'},()=>suggested++),true);
+    assert.equal(suggested,0);
     await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
     assert.equal(suggested,1);assert.equal(f.phase,fail?'aborted':'committed');
     assert.equal(f.messages.find(r=>r.kind==='prepare').filename,'early.zip');
@@ -287,4 +287,18 @@ test('a stopped capture controller cannot accept delayed events after a worker r
   await f.capture.created(f.download);await f.capture.changed({id:9,totalBytes:{current:2097152}});
   f.observe();await f.capture.idle();assert.deepEqual(f.calls,[]);
   let suggested=0;f.capture.determiningFilename(f.download,()=>suggested++);assert.equal(suggested,1);
+});
+
+test('canceling the location prompt cancels Chrome without commit or browser fallback',async()=>{
+  const browser=assisted(),f=await fixture({cancelLocation:true,browser});f.observe();await f.capture.created(f.download);await settleBrowser(f.capture);
+  assert.equal(f.download.error,'USER_CANCELED');assert(!f.calls.includes('commit'));assert(!f.calls.includes('resume'));assert.equal(browser.tracked.length,0);
+  assert.equal(Object.values(f.journal.captureRecords)[0].phase,'user_canceled');assert.equal(f.messages.find(r=>r.kind==='prepare').confirm_destination,true);
+  await f.capture.recover();assert(!f.calls.includes('resume'));
+});
+
+test('a lost location-cancel response is recovered without resuming Chrome',async()=>{
+  const f=await fixture();f.download.paused=true;
+  f.journal.captureRecords={'9:2026-10-16T00:00:00Z':{key:'9:2026-10-16T00:00:00Z',download_id:9,start_time:f.download.startTime,request_id:'request',phase:'pausing',paused_by_us:true}};
+  f.api.runtime.sendNativeMessage=async()=>({accepted:false,error:'user_cancelled'});
+  await f.capture.recover();assert.equal(f.download.error,'USER_CANCELED');assert(!f.calls.includes('resume'));assert.equal(Object.values(f.journal.captureRecords)[0].phase,'user_canceled');
 });

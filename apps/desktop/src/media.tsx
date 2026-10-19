@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { displayPath } from "./paths";
 type Choice = { id: string; label: string; role: string };
 type Inspection = { kind: string; choices: Choice[] };
 export function MediaDialog({
@@ -59,9 +60,10 @@ export function MediaDialog({
     }
   }
   async function choose() {
+    const folder = displayPath(await invoke<string>("download_location"));
     const path = await save({
       title: "Save media as",
-      defaultPath: `video.${container}`,
+      defaultPath: `${folder}\\video.${container}`,
       filters: [{ name: container.toUpperCase(), extensions: [container] }],
     });
     if (path) setDestination(path);

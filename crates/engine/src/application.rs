@@ -98,6 +98,77 @@ fn background(command: &mut Command) -> std::io::Result<std::process::Child> {
     command.spawn()
 }
 
+/// Shared desktop/extension controls. Browser records always use their owner;
+/// native jobs launch only the fixed companion executable with typed arguments.
+pub fn control_download(store: &Store, executable: &Path, id: &str, action: &str) -> Result<()> {
+    uuid::Uuid::parse_str(id).context("invalid_request_id")?;
+    if store.is_browser_transfer(id)? {
+        store.browser_control(
+            id,
+            match action {
+                "start" | "retry" => "resume",
+                "pause" => "pause",
+                "cancel" => "cancel",
+                "delete" => "delete",
+                _ => bail!("invalid_control_action"),
+            },
+        )?;
+        return Ok(());
+    }
+    match action {
+        "pause" => {
+            store.request(id, "paused")?;
+            return Ok(());
+        }
+        "cancel" => {
+            store.request(id, "canceled")?;
+            return Ok(());
+        }
+        "delete" => {
+            store.delete_download_file(id, true)?;
+            return Ok(());
+        }
+        "start" | "retry" => {}
+        _ => bail!("invalid_control_action"),
+    }
+    let engine = crate::Engine::new(Store::open(&store.directory)?);
+    engine.reconcile()?;
+    if action == "retry" {
+        store.retry_now(id)?;
+    }
+    let job = store.view(id)?;
+    if ["completed", "canceled"].contains(&job.state.as_str()) {
+        bail!("job_not_runnable");
+    }
+    if store
+        .list()?
+        .iter()
+        .any(|j| ["downloading", "pausing", "verifying", "publishing"].contains(&j.state.as_str()))
+    {
+        bail!("engine_busy");
+    }
+    let mut command = Command::new(executable);
+    command
+        .arg("--state-dir")
+        .arg(&store.directory)
+        .arg("run")
+        .arg(id)
+        .arg("--connections")
+        .arg(job.policy.connections.to_string())
+        .arg("--retries")
+        .arg(job.policy.retries.to_string())
+        .arg("--speed-limit")
+        .arg(job.policy.speed_limit.to_string());
+    if job.policy.adaptive {
+        command.arg("--adaptive");
+    }
+    let mut child = background(&mut command).context("engine_launch_failed")?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 /// Start one persistent worker per profile. Paused/failed jobs remain excluded,
 /// and the scheduler still applies queue hours, deadlines and speed limits.
 pub fn ensure_queue_worker(store: &Store, executable: &Path) -> Result<()> {

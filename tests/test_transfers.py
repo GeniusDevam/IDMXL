@@ -448,8 +448,42 @@ class TransferTests(unittest.TestCase):
         job=self.command("show",replies[0]["job_id"])
         self.assertTrue(os.path.samefile(Path(job["destination"]).parent,self.directory))
         self.assertNotIn("secret",json.dumps(job))
+
         self.command("run",job["id"],success=False)
         self.assertEqual(self.command("show",job["id"])["error"],"private_network_blocked")
+
+    def test_extension_live_downloads_are_redacted_and_controls_are_strict(self):
+        job=self.add()
+        request={"version":5,"kind":"jobs","request_id":str(uuid.uuid4())}
+        reply=self.replies(self.host(self.frame(request)).stdout)[0]
+        self.assertTrue(reply["accepted"],reply)
+        self.assertEqual(reply["jobs"][0]["id"],job["id"])
+        self.assertNotIn("destination",reply["jobs"][0]);self.assertNotIn("source",reply["jobs"][0])
+        request.update(kind="control",job_id=job["id"],action="pause")
+        reply=self.replies(self.host(self.frame(request)).stdout)[0]
+        self.assertTrue(reply["accepted"],reply);self.assertEqual(self.command("show",job["id"])["state"],"paused")
+        for change in [{"action":"delete"},{"url":"https://example.org/secret"},{"confirm_destination":True}]:
+            bad=dict(request,**change);reply=self.replies(self.host(self.frame(bad)).stdout)[0]
+            self.assertFalse(reply["accepted"],reply)
+        self.assertEqual(self.command("show",job["id"])["state"],"paused")
+
+    def test_immediate_retry_from_extension_completes_original_file(self):
+        job=self.add()
+        with sqlite3.connect(self.state/"jobs.db") as db:
+            db.execute("UPDATE jobs SET state='failed',error='fixture' WHERE id=?",(job["id"],))
+            db.execute("INSERT INTO origin_cooldowns VALUES(?,?)",(self.base,int(time.time()*1000)+3600000))
+        db.close()
+        request={"version":5,"kind":"control","request_id":str(uuid.uuid4()),"job_id":job["id"],"action":"retry"}
+        reply=self.replies(self.host(self.frame(request)).stdout)[0]
+        self.assertTrue(reply["accepted"],reply)
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            current=self.command("show",job["id"])
+            if current["state"]=="completed":break
+            time.sleep(.05)
+        self.assertEqual(current["state"],"completed",current)
+        self.assertEqual(hashlib.sha256(Path(current["destination"]).read_bytes()).hexdigest(),DIGEST)
+        self.stop_captured_worker()
 
     def test_native_host_rejects_origin_oversize_and_unknown_fields(self):
         result=self.host(b"",origin="chrome-extension://"+"b"*32+"/")
@@ -530,8 +564,11 @@ class TransferTests(unittest.TestCase):
             try:
                 # A scheduler can release its lock just before its Store drops.
                 # Wait for all profile connections before deleting test files.
-                for name in ["scheduler.lock", "maintenance.lock"]:
-                    with open(self.state / name, "r+b") as handle:
+                for name in ["scheduler.lock", "engine.lock", "maintenance.lock"]:
+                    lock_path=self.state/name
+                    if not lock_path.exists():
+                        continue
+                    with open(lock_path, "r+b") as handle:
                         if os.name == "nt":
                             import msvcrt
                             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)

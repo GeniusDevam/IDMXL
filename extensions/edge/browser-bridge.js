@@ -58,7 +58,7 @@ export function createBrowserBridge(api, options = {}) {
     return report;
   }
   async function apply(command) {
-    if (!command || !/^[0-9a-f-]{36}$/i.test(command.id || "") || !["pause", "resume", "cancel", "show"].includes(command.action)) return false;
+    if (!command || !/^[0-9a-f-]{36}$/i.test(command.id || "") || !["pause", "resume", "cancel", "show", "delete"].includes(command.action)) return false;
     if (ledger[command.id]) return false;
     const record = Object.values(records).find(record => record.request_id === command.transfer_id);
     ledger[command.id] = { pending: true, success: false, at: clock() };
@@ -78,13 +78,16 @@ export function createBrowserBridge(api, options = {}) {
       } else if (command.action === "cancel") {
         if (download.state === "in_progress") await api.downloads.cancel(download.id);
         else if (download.error !== "USER_CANCELED") throw new Error("not_running");
+      } else if (command.action === "delete") {
+        if (download.state === "in_progress") await api.downloads.cancel(download.id);
+        if (download.state === "complete" && download.exists) await api.downloads.removeFile(download.id);
       } else if (command.action === "show") {
         if (download.state !== "complete" || !download.exists) throw new Error("file_unavailable");
         await api.downloads.show(download.id);
       }
       success = true;
       const [current] = await api.downloads.search({ id: download.id });
-      if (current?.startTime === record.start_time) note(current, record);
+      if (current?.startTime === record.start_time) note(command.action === "delete" ? {...current,exists:false} : current, record);
     } catch { /* Only a bounded outcome is sent back; never raw browser errors. */ }
     ledger[command.id] = { pending: false, success, at: clock() };
     const old = Object.entries(ledger).sort((a,b) => a[1].at-b[1].at);
