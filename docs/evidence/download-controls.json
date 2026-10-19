@@ -78,8 +78,8 @@
   "current_ci_at_save": {
     "databaseId": 39292821659,
     "headSha": "dd2270ff8b7976ef25e10b5118a03d4b9447a355",
-    "status": "in_progress",
-    "conclusion": "",
+    "status": "completed",
+    "conclusion": "success",
     "url": "https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659"
   },
   "normal_windows_update_helper": {
@@ -94,19 +94,19 @@
     "registry_changed": false
   },
   "actual_chrome_0_1_5_test": {
-    "status": "native location flow and no separate Chrome download confirmed by user; remaining buttons pending limited-speed test",
+    "status": "Native Save/Cancel, live progress, no separate Chrome download and extension Pause/Resume/Cancel confirmed by user",
     "test_file": "Official Node.js v22.20.0 Windows x64 ZIP",
     "native_save_cancel_and_no_separate_browser_transfer_confirmed_by_user": true,
     "live_progress_confirmed_by_user": true,
-    "extension_pause_resume_cancel_confirmed_by_user": false,
-    "reason_remaining_buttons_not_tested": "Download completed too quickly. User has been given temporary speed-limit steps and asked to restore the original value.",
-    "final_file_hash_independently_verified": false
+    "extension_pause_resume_cancel_confirmed_by_user": true,
+    "final_file_hash_independently_verified": false,
+    "controls_test_method": "User repeated the official Node.js ZIP with a temporary 524288-byte/s native queue limit and confirmed Pause, Resume and Cancel work. User was instructed to restore the original limit."
   },
   "schema_migration_required": false,
   "limitations": [
     "Session-dependent browser transfers use Chrome/Edge Save As; Chrome owns the transfer and destination. IDMXL cannot force an arbitrary absolute path for an existing browser item.",
     "Native default learning and relocation do not move browser transfers. Prepared-media and completed-file relocation are not included.",
-    "The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The file completed before all extension Pause/Resume/Cancel buttons could be tested; a temporarily limited-speed follow-up is pending. Final bytes were not independently hashed in this user-run Chrome test.",
+    "The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The extension Pause/Resume/Cancel test also passed by user confirmation. Final bytes were not independently hashed in this user-run Chrome test.",
     "Optional >4 GiB fixture was not rerun or counted.",
     "Unsigned manual-update development preview; clean-machine installation, wider browser/media, accessibility, signing and binary distribution qualification remain open."
   ]
