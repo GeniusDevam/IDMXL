@@ -14,6 +14,9 @@ use crate::{
 
 pub struct Store {
     pub(crate) db: Connection,
+    // Only volatile progress uses NORMAL. Critical history/recovery transactions
+    // always use the independent FULL connection above.
+    progress_db: Connection,
     pub directory: PathBuf,
     _maintenance: std::fs::File,
 }
@@ -142,8 +145,12 @@ impl Store {
             db.execute_batch(include_str!("../migrations/006_everyday.sql"))?;
         }
         drop(idle_locks);
+        let progress_db = Connection::open(directory.join("jobs.db"))?;
+        progress_db.busy_timeout(std::time::Duration::from_secs(5))?;
+        progress_db.execute_batch("PRAGMA synchronous=NORMAL;")?;
         Ok(Self {
             db,
+            progress_db,
             directory,
             _maintenance: maintenance,
         })
@@ -473,6 +480,17 @@ impl Store {
         Ok(())
     }
     pub(crate) fn checkpoint(&self, id: &str, generation: u64, extent: &Extent) -> Result<()> {
+        self.checkpoint_many(id, generation, std::slice::from_ref(extent))
+    }
+
+    /// The caller flushes every supplied extent before entering this transaction.
+    /// Replacements contribute only their delta, so replaying a batch is idempotent.
+    pub(crate) fn checkpoint_many(
+        &self,
+        id: &str,
+        generation: u64,
+        extents: &[Extent],
+    ) -> Result<()> {
         let transaction = self.write_transaction()?;
         let current: u64 =
             transaction.query_row("SELECT generation FROM jobs WHERE id=?1", [id], |r| {
@@ -481,8 +499,35 @@ impl Store {
         if current != generation {
             bail!("stale_extent_generation");
         }
-        transaction.execute("INSERT OR REPLACE INTO extents(job_id,generation,offset,length,digest) VALUES(?1,?2,?3,?4,?5)",params![id,generation,extent.offset,extent.length,extent.digest])?;
-        transaction.execute("UPDATE jobs SET durable=(SELECT COALESCE(SUM(length),0) FROM extents WHERE job_id=?1 AND generation=?2) WHERE id=?1",params![id,generation])?;
+        let mut delta = 0i64;
+        {
+            let mut previous = transaction.prepare_cached(
+                "SELECT length FROM extents WHERE job_id=?1 AND offset=?2 AND generation=?3",
+            )?;
+            let mut insert = transaction.prepare_cached("INSERT OR REPLACE INTO extents(job_id,generation,offset,length,digest) VALUES(?1,?2,?3,?4,?5)")?;
+            for extent in extents {
+                use rusqlite::OptionalExtension;
+                let old: i64 = previous
+                    .query_row(params![id, extent.offset, generation], |r| r.get(0))
+                    .optional()?
+                    .unwrap_or(0);
+                let length = i64::try_from(extent.length)?;
+                delta = delta
+                    .checked_add(length - old)
+                    .context("extent_size_overflow")?;
+                insert.execute(params![
+                    id,
+                    generation,
+                    extent.offset,
+                    length,
+                    extent.digest
+                ])?;
+            }
+        }
+        transaction.execute(
+            "UPDATE jobs SET durable=durable+?1 WHERE id=?2",
+            params![delta, id],
+        )?;
         crate::fault::point("before_extent_commit");
         transaction.commit()?;
         crate::fault::point("after_extent_commit");
@@ -520,8 +565,8 @@ impl Store {
         let eta = total
             .filter(|_| speed > 0)
             .map(|n| n.saturating_sub(received).div_ceil(speed));
-        self.db.execute(
-            "UPDATE jobs SET received=?1,speed=?2,eta=?3,total=COALESCE(total,?4) WHERE id=?5",
+        self.progress_db.execute(
+            "UPDATE jobs SET received=MAX(durable,?1),speed=?2,eta=?3,total=COALESCE(total,?4) WHERE id=?5",
             params![received, speed, eta, total, id],
         )?;
         Ok(())
@@ -540,7 +585,7 @@ impl Store {
             || policy.queue_name.len() > 64
             || policy.queue_name.chars().any(char::is_control)
             || !(-1000..=1000).contains(&policy.priority)
-            || !(1..=4).contains(&policy.connections)
+            || !(1..=8).contains(&policy.connections)
             || policy.retries > 5
             || policy.not_before < 0
             || policy.deadline.is_some_and(|n| n <= policy.not_before)
@@ -642,6 +687,83 @@ pub(crate) fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn batch_checkpoints_are_idempotent_and_stale_generations_roll_back() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let job = store
+            .add(AddJob {
+                url: "https://example.org/file".into(),
+                destination: root.path().join("file.bin"),
+                replayable: true,
+                expected_sha256: None,
+            })
+            .unwrap();
+        let extents: Vec<_> = (0..64)
+            .map(|i| Extent {
+                offset: i * 1024,
+                length: 1024,
+                digest: format!("hash-{i}"),
+            })
+            .collect();
+        store.checkpoint_many(&job.id, 0, &extents).unwrap();
+        store.checkpoint_many(&job.id, 0, &extents).unwrap();
+        assert_eq!(store.get(&job.id).unwrap().durable, 64 * 1024);
+        let replacement = Extent {
+            offset: 0,
+            length: 512,
+            digest: "replacement".into(),
+        };
+        store.checkpoint(&job.id, 0, &replacement).unwrap();
+        assert_eq!(store.get(&job.id).unwrap().durable, 64 * 1024 - 512);
+        assert!(store.checkpoint_many(&job.id, 1, &extents).is_err());
+        assert_eq!(store.get(&job.id).unwrap().durable, 64 * 1024 - 512);
+        assert_eq!(store.extents(&job.id, 0).unwrap()[0].length, 512);
+        // Transient progress never changes the critical connection's durability.
+        store.progress(&job.id, 100000, 1, Some(200000)).unwrap();
+        assert_eq!(
+            store
+                .db
+                .query_row("PRAGMA synchronous", [], |r| r.get::<_, u8>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            store
+                .progress_db
+                .query_row("PRAGMA synchronous", [], |r| r.get::<_, u8>(0))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn regrouping_failed_ranges_does_not_reset_retry_budgets() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let job = store
+            .add(AddJob {
+                url: "https://example.org/file".into(),
+                destination: root.path().join("file.bin"),
+                replayable: true,
+                expected_sha256: None,
+            })
+            .unwrap();
+        let block = crate::transport::RECOVERY_BLOCK;
+        store.start_range(&job.id, 0, 0, 3 * block, 0).unwrap();
+        assert_eq!(store.failed_range(&job.id, 0, 0, 3 * block).unwrap(), 1);
+        assert!(store.start_range(&job.id, 0, block, block, 0).is_err());
+        assert_eq!(
+            store.request_counts(&job.id).unwrap(),
+            ("1".into(), "1".into())
+        );
+        store.reset_retry_budget(&job.id).unwrap();
+        store.start_range(&job.id, 0, block, block, 0).unwrap();
+        assert_eq!(
+            store.request_counts(&job.id).unwrap(),
+            ("2".into(), "1".into())
+        );
+    }
     #[test]
     fn v3_upgrade_waits_for_scheduler_and_preserves_jobs_in_backup() {
         let root = tempfile::tempdir().unwrap();

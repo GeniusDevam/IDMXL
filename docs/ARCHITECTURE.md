@@ -1,6 +1,35 @@
 # Initial architecture decisions
 
-These ADRs retain milestone history. Later decisions supersede earlier scope statements; ADR-011 records the current recurring-hours and import behavior.
+These ADRs retain milestone history. Later decisions supersede earlier scope statements. ADR-015 and PERFORMANCE.md describe the current transfer pipeline.
+
+## ADR-015: separate network leases, recovery blocks and final verification
+
+Recovery blocks stay at 1 MiB for compatibility with existing profiles. Larger
+files group blocks into shrinking 1–16 MiB conditional HTTP leases. Request
+failure budgets are canonical per recovery block, while start/failure totals
+count actual requests; regrouping after interruption cannot replenish a budget.
+Complete written blocks can be checkpointed during an active multi-block lease.
+Retries request only its unfinished suffix, preserving immutable completed bytes.
+
+The engine coalesces range writes into bounded 128 KiB buffers. Checkpoints batch
+at 8 MiB or 500 ms between network iterations, flush file data first, then commit
+extent records and an idempotent durable-byte delta in one FULL transaction.
+Pause, completion and transfer errors flush pending complete blocks. Volatile
+progress uses an independent NORMAL SQLite connection, so speed/ETA updates do
+not force a FULL sync while critical recovery/publication transactions retain it.
+
+An independent reader thread computes standard whole-file SHA-256 over the
+growing immutable prefix. It waits for holes, checks cancellation between reads,
+and joins before publication. Windows denies external staging writers/deletion
+while allowing that reader. Resume revalidates saved extents before announcing
+them. This avoids both shared-cursor races and treating chunk hashes as a whole
+SHA-256. Process-crash tests do not simulate physical storage power failure.
+
+Admission refills ready slots before waiting. Adaptive trials explore 1/2/4/8
+with measured gain, rollback and throttling cooldown; existing/default ceilings
+remain four unless explicitly changed. CLI-only numeric diagnostics and H1/H2
+preferences support reproducible experiments. HTTP/3, learned network profiles,
+mirrors and speculative work stealing require separate qualification.
 
 ## ADR-001: keep the planned engine stack
 

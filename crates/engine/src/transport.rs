@@ -12,11 +12,15 @@ use anyhow::{Result, bail};
 use curl::easy::{Easy2, Handler, List, WriteError};
 use sha2::{Digest, Sha256};
 
-use crate::platform;
+use crate::{model::Extent, platform};
+
+pub(crate) const RECOVERY_BLOCK: u64 = 1024 * 1024;
+const WRITE_BATCH: usize = 128 * 1024;
 
 #[derive(Debug, Default, Clone)]
 pub struct Headers {
     pub status: u32,
+    pub protocol: String,
     pub fields: HashMap<String, String>,
 }
 
@@ -57,6 +61,12 @@ pub struct Receiver {
     pub bytes: u64,
     pub error: Option<&'static str>,
     pub hash: Sha256,
+    pub(crate) completed: Vec<Extent>,
+    pub(crate) block_bytes: u64,
+    pub(crate) instrument: bool,
+    pub(crate) write_ms: f64,
+    pub(crate) hash_ms: f64,
+    buffer: Vec<u8>,
     file: Option<Arc<File>>,
     stop: Arc<AtomicBool>,
     ready: bool,
@@ -71,6 +81,12 @@ impl Receiver {
             bytes: 0,
             error: None,
             hash: Sha256::new(),
+            completed: Vec::new(),
+            block_bytes: 0,
+            instrument: false,
+            write_ms: 0.,
+            hash_ms: 0.,
+            buffer: Vec::new(),
             file,
             stop,
             ready: false,
@@ -79,6 +95,23 @@ impl Receiver {
     }
     pub fn digest(&self) -> String {
         format!("{:x}", self.hash.clone().finalize())
+    }
+
+    fn write_buffer(&mut self, offset: u64) -> bool {
+        if let Some(file) = &self.file {
+            let start = self.instrument.then(std::time::Instant::now);
+            let result = platform::write_at(file, &self.buffer, offset);
+            if let Some(start) = start {
+                self.write_ms += crate::performance::milliseconds(start);
+            }
+            if result.is_err() {
+                self.error = Some("storage_write_failed");
+                return false;
+            }
+            crate::fault::point("after_body_write");
+        }
+        self.buffer.clear();
+        true
     }
     fn validate(&self) -> Result<(), &'static str> {
         let status = self.headers.status;
@@ -166,6 +199,14 @@ impl Handler for Receiver {
         let value = value.trim_end_matches(['\r', '\n']);
         if value.starts_with("HTTP/") {
             self.headers = Headers::default();
+            self.headers.protocol = match value.split_whitespace().next().unwrap_or_default() {
+                "HTTP/1.0" => "HTTP/1.0",
+                "HTTP/1.1" => "HTTP/1.1",
+                "HTTP/2" => "HTTP/2",
+                "HTTP/3" => "HTTP/3",
+                _ => "unknown",
+            }
+            .to_owned();
             self.ready = false;
             self.headers.status = value
                 .split_whitespace()
@@ -203,6 +244,7 @@ impl Handler for Receiver {
 
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
         if self.stop.load(Ordering::Relaxed) {
+            self.error = Some("transfer_interrupted");
             return Ok(0);
         }
         if !self.ready {
@@ -231,14 +273,65 @@ impl Handler for Receiver {
             self.error = Some("body_exceeds_lease");
             return Ok(0);
         }
+        if let Mode::Range { offset, length, .. } = self.mode {
+            let accepted_before = self.bytes;
+            let blocks_before = self.block_bytes;
+            let completed_before = self.completed.len();
+            let mut remaining = data;
+            while !remaining.is_empty() {
+                let count = remaining
+                    .len()
+                    .min(WRITE_BATCH - self.buffer.len())
+                    .min((RECOVERY_BLOCK - self.bytes % RECOVERY_BLOCK) as usize);
+                self.buffer.extend_from_slice(&remaining[..count]);
+                let start = self.instrument.then(std::time::Instant::now);
+                self.hash.update(&remaining[..count]);
+                if let Some(start) = start {
+                    self.hash_ms += crate::performance::milliseconds(start);
+                }
+                self.bytes += count as u64;
+                remaining = &remaining[count..];
+                let boundary = self.bytes.is_multiple_of(RECOVERY_BLOCK) || self.bytes == length;
+                if (self.buffer.len() == WRITE_BATCH || boundary)
+                    && !self.write_buffer(offset + self.bytes - self.buffer.len() as u64)
+                {
+                    self.bytes = accepted_before;
+                    self.block_bytes = blocks_before;
+                    self.completed.truncate(completed_before);
+                    return Ok(0);
+                }
+                if boundary {
+                    let size = if self.bytes.is_multiple_of(RECOVERY_BLOCK) {
+                        RECOVERY_BLOCK
+                    } else {
+                        self.bytes % RECOVERY_BLOCK
+                    };
+                    self.completed.push(Extent {
+                        offset: offset + self.bytes - size,
+                        length: size,
+                        digest: format!("{:x}", self.hash.finalize_reset()),
+                    });
+                    self.block_bytes += size;
+                }
+            }
+            return Ok(data.len());
+        }
         if let Some(file) = &self.file {
+            let start = self.instrument.then(std::time::Instant::now);
             if platform::write_at(file, data, offset + self.bytes).is_err() {
                 self.error = Some("storage_write_failed");
                 return Ok(0);
             }
+            if let Some(start) = start {
+                self.write_ms += crate::performance::milliseconds(start);
+            }
             crate::fault::point("after_body_write");
         }
+        let start = self.instrument.then(std::time::Instant::now);
         self.hash.update(data);
+        if let Some(start) = start {
+            self.hash_ms += crate::performance::milliseconds(start);
+        }
         self.bytes = end;
         Ok(data.len())
     }
@@ -250,7 +343,12 @@ impl Handler for Receiver {
         _upload_total: f64,
         _uploaded: f64,
     ) -> bool {
-        !self.stop.load(Ordering::Relaxed)
+        if self.stop.load(Ordering::Relaxed) {
+            self.error = Some("transfer_interrupted");
+            false
+        } else {
+            true
+        }
     }
 }
 
@@ -439,6 +537,36 @@ pub fn parse_range(value: &str) -> Option<(u64, u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn buffered_range_storage_failure_never_emits_a_recovery_extent() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("readonly.bin");
+        std::fs::write(&path, b"original").unwrap();
+        let mut receiver = Receiver::new(
+            Mode::Range {
+                offset: 0,
+                length: 3,
+                total: 3,
+                etag: "\"a\"".into(),
+            },
+            Some(Arc::new(File::open(&path).unwrap())),
+            Arc::new(AtomicBool::new(false)),
+        );
+        for line in [
+            b"HTTP/1.1 206 Partial Content\r\n".as_slice(),
+            b"Content-Range: bytes 0-2/3\r\n",
+            b"Content-Length: 3\r\n",
+            b"ETag: \"a\"\r\n",
+            b"\r\n",
+        ] {
+            assert!(receiver.header(line));
+        }
+        assert_eq!(receiver.write(b"new").unwrap(), 0);
+        assert_eq!(receiver.bytes, 0);
+        assert_eq!(receiver.block_bytes, 0);
+        assert!(receiver.completed.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+    }
     #[test]
     fn failed_storage_write_does_not_claim_received_bytes() {
         let directory = tempfile::tempdir().unwrap();

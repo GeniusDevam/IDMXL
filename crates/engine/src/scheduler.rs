@@ -97,6 +97,7 @@ pub fn drain_notifying(
                 speed_limit_bytes: speed,
                 adaptive: policy.adaptive,
                 stop: job_stop,
+                ..Default::default()
             },
         );
         finished.store(true, Ordering::Relaxed);

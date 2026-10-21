@@ -1,8 +1,20 @@
 # IDMXL progress
 
-Updated 19 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 21 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
-Current checkpoint: extension **0.1.5** and its matching native app add save-location confirmation, four-use folder learning, editable locations, live extension controls, immediate retry, confirmed file deletion and confirmed bulk actions. Native handoff holds Chrome’s filename decision and cancels its original transfer before starting. Browser-assisted downloads remain browser-owned and use Chrome/Edge’s chooser. **182 local checks pass**; native lint, frontend, release/installer build and isolated update qualification pass. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed. The normal-session update receipt verifies the matching engine/desktop, all fourteen extension files, preserved history IDs and restoration of the previously running queue. The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The extension Pause/Resume/Cancel test also passed by user confirmation. See docs/TEST-EVIDENCE.md, docs/DOWNLOAD-CONTROLS.md and docs/evidence/download-controls.json. Earlier milestones are historical.
+Current performance checkpoint: grouped 1–16 MiB HTTP leases with compatible
+1 MiB recovery blocks, batched FULL checkpoints, incremental durable accounting,
+coalesced writes, overlapped disk SHA-256, immediate scheduler refill, numeric
+diagnostics and bounded 1/2/4/8 adaptive trials are implemented. Existing/new
+automatic ceilings remain four; the desktop supports an explicit ceiling of
+eight. **195 local checks pass**, including private-CA HTTP/2, media, all eight
+crash boundaries for both one- and two-block requests, and a distinct-pattern
+4,294,967,553-byte file through a 397-character path. Full optimized-engine
+comparison and updated preview packaging are being recorded separately; no
+general IDM superiority or new normal-session installation is claimed here.
+See docs/PERFORMANCE.md and the latest docs/TEST-EVIDENCE.md section.
+
+Previous controls checkpoint: extension **0.1.5** and its matching native app add save-location confirmation, four-use folder learning, editable locations, live extension controls, immediate retry, confirmed file deletion and confirmed bulk actions. Native handoff holds Chrome’s filename decision and cancels its original transfer before starting. Browser-assisted downloads remain browser-owned and use Chrome/Edge’s chooser. **182 local checks passed for that runtime**; native lint, frontend, release/installer build and isolated update qualification passed. [Windows CI for that runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed. The normal-session update receipt verifies those engine/desktop files, all fourteen extension files, preserved history IDs and restoration of the previously running queue. The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The extension Pause/Resume/Cancel test also passed by user confirmation. See docs/DOWNLOAD-CONTROLS.md and docs/evidence/download-controls.json. Earlier milestones are historical.
 
 ## Milestone 1: first working transfer engine
 

@@ -80,6 +80,56 @@ impl Store {
         crate::fault::point("after_retry_record");
         Ok(used)
     }
+
+    /// Retry budgets follow recovery blocks, not the current grouping into HTTP
+    /// requests. Regrouping holes after a crash must never replenish that budget.
+    pub(crate) fn start_range(
+        &self,
+        id: &str,
+        generation: u64,
+        offset: u64,
+        length: u64,
+        retries: u32,
+    ) -> Result<()> {
+        let tx = self.write_transaction()?;
+        let end = offset
+            .checked_add(length)
+            .context("invalid_content_range")?;
+        let exhausted: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset>=?3 AND offset<?4 AND budget_failures>?5)",params![id,generation,offset,end,retries],|r|r.get(0))?;
+        if exhausted {
+            bail!("retry_exhausted");
+        }
+        // One start per actual HTTP request, using its first canonical block.
+        let first = length.min(crate::transport::RECOVERY_BLOCK);
+        tx.execute("INSERT INTO request_attempts(job_id,generation,offset,length,started) VALUES(?1,?2,?3,?4,1) ON CONFLICT(job_id,generation,offset,length) DO UPDATE SET started=started+1",params![id,generation,offset,first])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn failed_range(
+        &self,
+        id: &str,
+        generation: u64,
+        offset: u64,
+        length: u64,
+    ) -> Result<u32> {
+        let tx = self.write_transaction()?;
+        let mut cursor = offset;
+        let end = offset
+            .checked_add(length)
+            .context("invalid_content_range")?;
+        let mut used = 0;
+        while cursor < end {
+            let size = (end - cursor).min(crate::transport::RECOVERY_BLOCK);
+            tx.execute("INSERT INTO request_attempts(job_id,generation,offset,length,budget_failures,total_failures) VALUES(?1,?2,?3,?4,1,?5) ON CONFLICT(job_id,generation,offset,length) DO UPDATE SET budget_failures=budget_failures+1,total_failures=total_failures+?5",params![id,generation,cursor,size,u8::from(cursor==offset)])?;
+            let n: u32 = tx.query_row("SELECT budget_failures FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,cursor,size],|r|r.get(0))?;
+            used = used.max(n);
+            cursor += size;
+        }
+        tx.commit()?;
+        crate::fault::point("after_retry_record");
+        Ok(used)
+    }
     /// Resume bytes only when a renewed URL names the same origin/path and strong representation.
     pub fn refresh_source(&self, id: &str, source: &str) -> Result<JobView> {
         let lock = OpenOptions::new()

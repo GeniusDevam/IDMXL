@@ -8,19 +8,25 @@
 
 | Area | What IDMXL supports |
 | --- | --- |
-| File downloads | HTTP/HTTPS links, a single-request mode for uncertain or one-use links, and up to four connections for safely reusable links. |
+| File downloads | HTTP/HTTPS links, a single-request mode for uncertain or one-use links, and up to eight concurrent requests for safely reusable links. New reusable jobs default to a ceiling of four. |
 | Pause and recovery | Persistent checkpoints, process-crash recovery and validation of saved data before resume. Sources without safe range support restart as a single stream. |
 | Connection controls | Automatic or fixed connection counts, saved retry budgets, request/failure counters, per-file and queue speed limits. |
 | Queues and schedules | Named queues, priorities, scheduled starts/deadlines and recurring weekday or overnight hours. One file runs at a time. |
 | Link import | Multiple links, Ctrl+V and text/link drops, review before adding, file-type folder rules and collision-safe filenames. |
 | Expired links | Replace a file URL; retain saved bytes only when the original trusted hash and strict resource-identity checks allow it. |
-| Verification | Optional expected SHA-256, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
+| Verification | Whole-file SHA-256 overlaps downloading; optional expected hash, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
 | Desktop controls | Searchable history, progress/speed/ETA, light/dark themes, reveal in folder, tray support and background downloads after closing the interface. |
 | Locations and file actions | Native save-location confirmation, suggested default after four uses, editable default and paused file destinations, immediate retry, confirmed file deletion and confirmed Pause/Cancel/Delete all. |
 | Completion alerts | Optional Windows notifications while the interface is running; disabled by default. |
 | Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, native capture over 1 MB plus browser-assisted progress and controls for other ordinary downloads, and clicked media-element discovery. See qualification details below. |
 | Video and audio | Direct media, restricted clear HLS VOD and static DASH; exact track selection, audio-only output and verified assembly without re-encoding or upscaling. |
 | Local state | SQLite history and Windows user-scoped protection for source URLs. Python is not required to run the built application. |
+
+The native engine groups larger HTTP ranges while retaining 1 MiB recovery
+blocks, batches durable checkpoints, and refills idle request slots immediately.
+See [performance design and reproducible benchmarks](docs/PERFORMANCE.md).
+Speed depends on the source and connection; a universal advantage over IDM has
+not been established.
 
 ## Get started
 

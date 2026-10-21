@@ -1,5 +1,37 @@
 # Test evidence
 
+## 21 October 2026: transfer performance pipeline
+
+The optimized engine passes **195 local top-level checks**: 56 Rust (55 engine
+and one native framing), 64 Python transfer/media/private-CA HTTP2 cases, the
+separate real >4 GiB resource case, and 74 extension/link-import Node cases.
+The ordinary Python run reports 65 cases with only the optional resource case
+skipped; that case was subsequently enabled and passed separately. Root Clippy
+with warnings denied, formatting and the TypeScript/Vite build pass.
+
+Recovery tests cover abrupt exits at all eight write/flush/commit/publication
+boundaries using both 1 MiB and grouped 2 MiB HTTP leases. New cases cover grouped
+request truncation, pause within a long request, canonical retry budgets across
+regrouping, idempotent checkpoint batches, denied external staging writes,
+independent ordered verification, and redacted numeric diagnostics. Existing
+browser capture, location, retry, confirmed deletion and bulk-control fixtures
+continue to pass. Real Chrome UI checks below belong to the previous runtime;
+no new real-browser click-through is inferred from these backend tests.
+
+The release resource test transferred **4,294,967,553 bytes** with distinct
+SHA-derived 64 KiB block patterns, verified SHA-256
+`f69b5a49cb06ef8cfb5c521d994afe33b74dbb0358fd15e8d56dbc3a2cbba46e`, and
+published through a **397-character Unicode path**. Total fixture execution was
+147.012 seconds, including setup/reference work; it is not an internet speed
+measurement. Its owned payload was removed by test cleanup. Tested engine SHA-256:
+`5bd118238e29b62ffce152df3bad7dcd34d83f5fa2a61807b2545fd77703d942`.
+
+The new engine comparison uses the previous byte-identical release and the new
+release with identical generated files and requested concurrency. Results and
+updated preview package qualification are recorded after measurement. The
+design and remaining HTTP3/mirror/network-profile qualification are documented
+in [PERFORMANCE.md](PERFORMANCE.md).
+
 ## 19 October 2026: download locations and management controls
 
 Runtime `dd2270ff8b7976ef25e10b5118a03d4b9447a355` implements extension **0.1.5** and the matching native controls. The complete `scripts/test.ps1 -Faults -Protocols -Media` run passed **182 distinct checks**: 49 Rust (48 engine, 1 CLI), 59 Python methods (60 reported, one optional >4 GiB skip; 135.173 seconds) and 74 Node checks (72 extension, 2 link import). Rust formatting, root/native Clippy with warnings denied, TypeScript/Vite and final release/NSIS builds passed. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed.

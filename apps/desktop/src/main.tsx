@@ -948,11 +948,11 @@ function App() {
                     />
                   </label>
                   <label>
-                    Maximum connections (1–4)
+                    Maximum connections (1–8)
                     <input
                       type="number"
                       min="1"
-                      max="4"
+                      max="8"
                       value={policyDraft.connections}
                       onChange={(e) =>
                         setPolicyDraft({

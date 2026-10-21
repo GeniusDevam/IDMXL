@@ -34,7 +34,7 @@ Pass `--sha256 <trusted-digest>` to `add` when a trusted expected hash is availa
 
 ## Saved policies
 
-`policy <job-id>` accepts a JSON object on stdin with `queue_name`, `priority` (-1000..1000), `not_before` (UTC Unix milliseconds), optional `deadline`, `connections` (1..4), `retries` (0..5), `adaptive` (boolean) and `speed_limit` (bytes/second; zero unlimited).
+`policy <job-id>` accepts a JSON object on stdin with `queue_name`, `priority` (-1000..1000), `not_before` (UTC Unix milliseconds), optional `deadline`, `connections` (1..8), `retries` (0..5), `adaptive` (boolean) and `speed_limit` (bytes/second; zero unlimited).
 
 Rate changes apply when a job starts. Schedules run while the logged-in queue worker is alive; missed starts run when next eligible. Explicitly paused jobs stay paused. A queue pause preserves its current job for the next queue start. Failed jobs require explicit retry/requeue; that grants a new failed-request budget while retaining historical request counts.
 

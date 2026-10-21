@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::{File, OpenOptions},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -18,7 +19,9 @@ use crate::{
     transport::{self, Mode, Receiver},
 };
 
-const BLOCK: u64 = 1024 * 1024;
+const BLOCK: u64 = transport::RECOVERY_BLOCK;
+const CHECKPOINT_BYTES: u64 = 8 * BLOCK;
+const CHECKPOINT_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 pub struct RunOptions {
@@ -26,6 +29,10 @@ pub struct RunOptions {
     pub retries: u32,
     pub speed_limit_bytes: u64,
     pub adaptive: bool,
+    pub metrics: Option<PathBuf>,
+    /// Experimental request-span override. Recovery blocks remain one MiB.
+    pub request_mib: Option<u8>,
+    pub http_version: Option<curl::easy::HttpVersion>,
     pub stop: Arc<AtomicBool>,
 }
 impl Default for RunOptions {
@@ -35,6 +42,9 @@ impl Default for RunOptions {
             retries: 2,
             speed_limit_bytes: 0,
             adaptive: false,
+            metrics: None,
+            request_mib: None,
+            http_version: None,
             stop: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -96,7 +106,10 @@ impl Engine {
     }
 
     pub fn run(&self, id: &str, options: RunOptions) -> Result<JobView> {
-        if !(1..=4).contains(&options.connections) || options.retries > 5 {
+        if !(1..=8).contains(&options.connections)
+            || options.retries > 5
+            || options.request_mib.is_some_and(|n| !(1..=32).contains(&n))
+        {
             bail!("invalid_transfer_options");
         }
         let lock = OpenOptions::new()
@@ -124,6 +137,9 @@ impl Engine {
         }
         if job.state == "canceled" {
             bail!("job_canceled");
+        }
+        if options.metrics.is_some() && self.store.is_media(id)? {
+            bail!("media_metrics_unsupported");
         }
         if job.state == "publishing" {
             return self.recover_publication(&job);
@@ -214,10 +230,32 @@ impl Engine {
         if self.store.is_media(id)? {
             return crate::media::execute(self, id, options);
         }
+        let mut metrics = crate::performance::Metrics::new(options.metrics.as_deref())?;
+        let result = self.transfer_file(id, options, &mut metrics);
+        let status = if result.is_err() {
+            "failed"
+        } else if self.should_stop(id, options).unwrap_or(true) {
+            "interrupted"
+        } else {
+            "completed"
+        };
+        if metrics.finish(status).is_err() {
+            eprintln!("performance_report_write_failed");
+        }
+        result
+    }
+
+    fn transfer_file(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+    ) -> Result<()> {
         let mut job = self.store.get(id)?;
         if job.destination.exists() {
             bail!("destination_exists");
         }
+        let phase = Instant::now();
         let probe = if job.replayable {
             Some(transport::probe(
                 &job.url,
@@ -227,6 +265,7 @@ impl Engine {
         } else {
             None
         };
+        metrics.probe_ms = crate::performance::milliseconds(phase);
         self.store.capture_identity(id, probe.as_ref())?;
         let ranged = probe.as_ref().is_some_and(|p| p.ranged);
         let resolved = probe
@@ -255,10 +294,7 @@ impl Engine {
             if platform::is_reparse(&job.staging)? {
                 bail!("staging_reparse_point");
             }
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&job.staging)?
+            staging_options(false).open(&job.staging)?
         } else {
             if job.staging.exists() {
                 if platform::is_reparse(&job.staging)? {
@@ -266,11 +302,7 @@ impl Engine {
                 }
                 std::fs::remove_file(&job.staging)?;
             }
-            OpenOptions::new()
-                .create_new(true)
-                .read(true)
-                .write(true)
-                .open(&job.staging)?
+            staging_options(true).open(&job.staging)?
         };
         if let Some(total) = total {
             let needed = total.saturating_sub(job.durable);
@@ -281,11 +313,17 @@ impl Engine {
             }
         }
         let file = Arc::new(file);
-        if ranged {
-            self.download_ranges(&job, file.clone(), options)?;
+        let phase = Instant::now();
+        let verified = if ranged {
+            self.download_ranges(&job, file.clone(), options, metrics)?
         } else {
-            self.download_sequential(&job, &resolved, file.clone(), options)?;
-        }
+            self.download_sequential(&job, &resolved, file.clone(), options, metrics)?;
+            None
+        };
+        metrics.download_ms = (crate::performance::milliseconds(phase)
+            - metrics.resume_validation_ms
+            - metrics.verification_tail_ms)
+            .max(0.);
         if self.should_stop(id, options)? {
             file.sync_all()?;
             let state = if self.store.requested(id)? == "canceled" {
@@ -297,9 +335,17 @@ impl Engine {
             return Ok(());
         }
         self.store.state(id, "verifying", None)?;
+        let phase = Instant::now();
         file.sync_all()?;
+        metrics.final_flush_ms = crate::performance::milliseconds(phase);
         let size = file.metadata()?.len();
-        let digest = platform::hash_extent(&file, 0, size)?;
+        let phase = Instant::now();
+        let digest = if let Some(digest) = verified {
+            digest
+        } else {
+            platform::hash_extent(&file, 0, size)?
+        };
+        metrics.verification_tail_ms += crate::performance::milliseconds(phase);
         if job
             .expected_sha256
             .as_ref()
@@ -316,6 +362,7 @@ impl Engine {
             self.store.state(id, state, None)?;
             return Ok(());
         }
+        let phase = Instant::now();
         let file_id = platform::file_id(&file)?;
         self.store.publication_intent(id, size, &digest, &file_id)?;
         crate::fault::point("after_publication_intent");
@@ -325,10 +372,19 @@ impl Engine {
         platform::publish(&job.staging, &job.destination)?;
         crate::fault::point("after_rename");
         crate::fault::point("before_completion_commit");
-        self.store.complete(id)
+        self.store.complete(id)?;
+        metrics.publication_ms = crate::performance::milliseconds(phase);
+        Ok(())
     }
 
-    fn download_ranges(&self, job: &Job, file: Arc<File>, options: &RunOptions) -> Result<()> {
+    fn download_ranges(
+        &self,
+        job: &Job,
+        file: Arc<File>,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+    ) -> Result<Option<String>> {
+        let phase = Instant::now();
         let total = job.total.context("missing_range_length")?;
         let completed = self.store.extents(&job.id, job.generation)?;
         let mut valid = HashSet::new();
@@ -346,7 +402,22 @@ impl Engine {
             }
         }
         file.set_len(total)?;
-        let mut durable = self.store.get(&job.id)?.durable;
+        metrics.resume_validation_ms = crate::performance::milliseconds(phase);
+        let reader = File::open(&job.staging)?;
+        if platform::file_id(&reader)? != platform::file_id(&file)? {
+            bail!("staging_identity_mismatch");
+        }
+        let verifier = crate::verification::Verifier::new(reader);
+        let mut prefix = 0;
+        while prefix < total && valid.contains(&prefix) {
+            prefix += BLOCK.min(total - prefix);
+        }
+        verifier.advance(prefix);
+        let durable = self.store.get(&job.id)?.durable;
+        let mut written = durable;
+        let mut checkpoint = Vec::new();
+        let mut checkpoint_bytes = 0;
+        let mut checkpoint_time = Instant::now();
         let mut meter = Meter::new(durable);
         let mut pending: VecDeque<Work> = VecDeque::new();
         let mut cursor = 0;
@@ -355,7 +426,7 @@ impl Engine {
         let connections = if options.speed_limit_bytes > 0 {
             options
                 .connections
-                .min(options.speed_limit_bytes.min(4) as usize)
+                .min(options.speed_limit_bytes.min(8) as usize)
         } else {
             options.connections
         };
@@ -371,184 +442,268 @@ impl Engine {
         let mut sample_time = Instant::now();
         let mut sample_bytes = durable;
         let mut origin_retry_until = Instant::now();
-        while cursor < total || !pending.is_empty() || !active.is_empty() {
-            if self.should_stop(&job.id, options)? {
-                return Ok(());
-            }
-            while active.len() < concurrency {
-                if Instant::now() < origin_retry_until {
-                    break;
+        let outcome = (|| -> Result<()> {
+            while cursor < total || !pending.is_empty() || !active.is_empty() {
+                if self.should_stop(&job.id, options)? {
+                    return Ok(());
                 }
-                let task = if let Some(index) =
-                    pending.iter().position(|task| task.ready <= Instant::now())
-                {
-                    pending.remove(index).expect("known retry index")
-                } else if !pending.is_empty() {
-                    break;
-                } else {
-                    while cursor < total && valid.contains(&cursor) {
-                        cursor += BLOCK.min(total - cursor);
-                    }
-                    if cursor == total {
+                while active.len() < concurrency {
+                    if Instant::now() < origin_retry_until {
                         break;
                     }
-                    let task = Work {
-                        offset: cursor,
-                        length: BLOCK.min(total - cursor),
-                        attempt: 0,
-                        ready: Instant::now(),
-                    };
-                    cursor += task.length;
-                    task
-                };
-                self.store.start_request(
-                    &job.id,
-                    job.generation,
-                    task.offset,
-                    task.length.try_into()?,
-                    options.retries,
-                )?;
-                let mode = Mode::Range {
-                    offset: task.offset,
-                    length: task.length,
-                    total,
-                    etag: job.etag.clone().context("missing_range_validator")?,
-                };
-                let easy = transport::handle(
-                    job.resolved_url
-                        .as_deref()
-                        .context("missing_resolved_url")?,
-                    mode,
-                    Some(file.clone()),
-                    options.stop.clone(),
-                    speed,
-                    job.public_only,
-                )?;
-                token += 1;
-                let mut handle = multi.add2(easy)?;
-                handle.set_token(token)?;
-                active.insert(token, (handle, task));
-            }
-            multi.perform()?;
-            let in_flight: u64 = active
-                .values()
-                .map(|(handle, _)| handle.get_ref().bytes)
-                .sum();
-            let received = durable.saturating_add(in_flight);
-            if let Some(controller) = adaptive.as_mut()
-                && sample_time.elapsed() >= Duration::from_secs(1)
-            {
-                controller.sample(
-                    received.saturating_sub(sample_bytes) as f64
-                        / sample_time.elapsed().as_secs_f64(),
-                );
-                concurrency = controller.limit();
-                sample_time = Instant::now();
-                sample_bytes = received;
-            }
-            meter.update(
-                &self.store,
-                &job.id,
-                durable.saturating_add(in_flight),
-                Some(total),
-            )?;
-            let mut results = Vec::new();
-            multi.messages(|message| {
-                if let Some(result) = message.result()
-                    && let Ok(token) = message.token()
-                {
-                    results.push((token, result));
-                }
-            });
-            for (token, result) in results {
-                let (handle, mut task) = active.remove(&token).context("unknown_transfer_token")?;
-                let easy = multi.remove2(handle)?;
-                let receiver = easy.get_ref();
-                let error = receiver
-                    .error
-                    .or_else(|| {
-                        result.as_ref().err().map(|error| {
-                            if matches!(error.code(), 35 | 51 | 58 | 60 | 77) {
-                                "tls_verification_failed"
-                            } else {
-                                "transfer_transport_failed"
-                            }
-                        })
-                    })
-                    .or_else(|| {
-                        (receiver.headers.status != 206 || receiver.bytes != task.length)
-                            .then_some("invalid_content_length")
-                    });
-                if let Some(error) = error {
-                    if error == "server_throttled"
-                        && let Some(header) = receiver.headers.fields.get("retry-after")
-                        && let Some(delay) = server_delay(header)
+                    let task = if let Some(index) =
+                        pending.iter().position(|task| task.ready <= Instant::now())
                     {
-                        self.store
-                            .defer_origin(job.resolved_url.as_deref().unwrap_or(&job.url), delay)?;
-                        self.store.defer_origin(&job.url, delay)?;
-                    }
-                    let retryable = error == "server_throttled"
-                        || (error == "transfer_transport_failed"
-                            && result.as_ref().err().is_some_and(|e| {
-                                matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
-                            }));
-                    if error != "transfer_interrupted" {
-                        task.attempt = self.store.failed_request(
-                            &job.id,
-                            job.generation,
-                            task.offset,
-                            task.length.try_into()?,
-                        )?;
-                    }
-                    if retryable && task.attempt <= options.retries {
-                        let Some(delay) = retry_delay(
-                            receiver
-                                .headers
-                                .fields
-                                .get("retry-after")
-                                .map(String::as_str),
-                            task.attempt,
-                        ) else {
-                            // A long or unparsed server deadline must not be retried early.
-                            bail!("server_throttled");
-                        };
-                        task.ready = Instant::now() + delay;
-                        if error == "server_throttled" {
-                            concurrency = 1;
-                            if let Some(controller) = adaptive.as_mut() {
-                                controller.throttle();
-                            }
-                            origin_retry_until = origin_retry_until.max(task.ready);
-                        } else if let Some(controller) = adaptive.as_mut() {
-                            controller.throttle();
-                            concurrency = 1;
+                        pending.remove(index).expect("known retry index")
+                    } else if !pending.is_empty() {
+                        break;
+                    } else {
+                        while cursor < total && valid.contains(&cursor) {
+                            cursor += BLOCK.min(total - cursor);
                         }
-                        pending.push_back(task);
-                        continue;
-                    }
-                    bail!("{error}");
-                }
-                // The file flush precedes every durable extent transaction.
-                file.sync_all()?;
-                crate::fault::point("after_extent_flush");
-                self.store.checkpoint(
-                    &job.id,
-                    job.generation,
-                    &Extent {
+                        if cursor == total {
+                            break;
+                        }
+                        let span = request_span(total, cursor, connections, options.request_mib);
+                        let mut length = BLOCK.min(total - cursor);
+                        while length < span
+                            && cursor + length < total
+                            && !valid.contains(&(cursor + length))
+                        {
+                            length += BLOCK.min(total - cursor - length);
+                        }
+                        let task = Work {
+                            offset: cursor,
+                            length,
+                            attempt: 0,
+                            ready: Instant::now(),
+                        };
+                        cursor += task.length;
+                        task
+                    };
+                    let phase = Instant::now();
+                    self.store.start_range(
+                        &job.id,
+                        job.generation,
+                        task.offset,
+                        task.length,
+                        options.retries,
+                    )?;
+                    metrics.request_accounting_ms += crate::performance::milliseconds(phase);
+                    let mode = Mode::Range {
                         offset: task.offset,
                         length: task.length,
-                        digest: receiver.digest(),
-                    },
-                )?;
-                durable += task.length;
+                        total,
+                        etag: job.etag.clone().context("missing_range_validator")?,
+                    };
+                    let mut easy = transport::handle(
+                        job.resolved_url
+                            .as_deref()
+                            .context("missing_resolved_url")?,
+                        mode,
+                        Some(file.clone()),
+                        options.stop.clone(),
+                        speed,
+                        job.public_only,
+                    )?;
+                    easy.get_mut().instrument = metrics.enabled();
+                    if let Some(version) = options.http_version {
+                        easy.http_version(version)?;
+                    }
+                    token += 1;
+                    let mut handle = multi.add2(easy)?;
+                    metrics.requests += 1;
+                    handle.set_token(token)?;
+                    active.insert(token, (handle, task));
+                }
+                multi.perform()?;
+                for (handle, _) in active.values_mut() {
+                    for extent in std::mem::take(&mut handle.get_mut().completed) {
+                        written += extent.length;
+                        checkpoint_bytes += extent.length;
+                        valid.insert(extent.offset);
+                        checkpoint.push(extent);
+                    }
+                }
+                while prefix < total && valid.contains(&prefix) {
+                    prefix += BLOCK.min(total - prefix);
+                }
+                verifier.advance(prefix);
+                if checkpoint_bytes >= CHECKPOINT_BYTES
+                    || (!checkpoint.is_empty() && checkpoint_time.elapsed() >= CHECKPOINT_INTERVAL)
+                {
+                    self.flush_checkpoints(job, &file, &mut checkpoint, metrics)?;
+                    checkpoint_bytes = 0;
+                    checkpoint_time = Instant::now();
+                }
+                // Completed blocks of active leases are already included in written.
+                let partial: u64 = active
+                    .values()
+                    .map(|(handle, _)| handle.get_ref().bytes - handle.get_ref().block_bytes)
+                    .sum();
+                let received = written.saturating_add(partial).min(total);
+                if let Some(controller) = adaptive.as_mut()
+                    && sample_time.elapsed() >= Duration::from_secs(1)
+                {
+                    controller.sample(
+                        received.saturating_sub(sample_bytes) as f64
+                            / sample_time.elapsed().as_secs_f64(),
+                    );
+                    concurrency = controller.limit();
+                    sample_time = Instant::now();
+                    sample_bytes = received;
+                }
+                meter.update(&self.store, &job.id, received, Some(total))?;
+                let mut results = Vec::new();
+                multi.messages(|message| {
+                    if let Some(result) = message.result()
+                        && let Ok(token) = message.token()
+                    {
+                        results.push((token, result));
+                    }
+                });
+                for (token, result) in results {
+                    let (handle, mut task) =
+                        active.remove(&token).context("unknown_transfer_token")?;
+                    let easy = multi.remove2(handle)?;
+                    metrics.request(&easy);
+                    let receiver = easy.get_ref();
+                    let error = receiver
+                        .error
+                        .or_else(|| {
+                            result.as_ref().err().map(|error| {
+                                if matches!(error.code(), 35 | 51 | 58 | 60 | 77) {
+                                    "tls_verification_failed"
+                                } else {
+                                    "transfer_transport_failed"
+                                }
+                            })
+                        })
+                        .or_else(|| {
+                            (receiver.headers.status != 206 || receiver.bytes != task.length)
+                                .then_some("invalid_content_length")
+                        });
+                    if let Some(error) = error {
+                        if error == "server_throttled"
+                            && let Some(header) = receiver.headers.fields.get("retry-after")
+                            && let Some(delay) = server_delay(header)
+                        {
+                            self.store.defer_origin(
+                                job.resolved_url.as_deref().unwrap_or(&job.url),
+                                delay,
+                            )?;
+                            self.store.defer_origin(&job.url, delay)?;
+                        }
+                        let retryable = error == "server_throttled"
+                            || (error == "transfer_transport_failed"
+                                && result.as_ref().err().is_some_and(|e| {
+                                    matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
+                                }));
+                        if error != "transfer_interrupted" {
+                            task.attempt = self.store.failed_range(
+                                &job.id,
+                                job.generation,
+                                task.offset,
+                                task.length,
+                            )?;
+                        }
+                        if retryable && task.attempt <= options.retries {
+                            let Some(delay) = retry_delay(
+                                receiver
+                                    .headers
+                                    .fields
+                                    .get("retry-after")
+                                    .map(String::as_str),
+                                task.attempt,
+                            ) else {
+                                // A long or unparsed server deadline must not be retried early.
+                                bail!("server_throttled");
+                            };
+                            task.ready = Instant::now() + delay;
+                            // A fully written recovery block is immutable, even if a
+                            // later part of this HTTP response was interrupted.
+                            let accepted = receiver.block_bytes.min(task.length);
+                            task.offset += accepted;
+                            task.length -= accepted;
+                            if task.length == 0 {
+                                continue;
+                            }
+                            if error == "server_throttled" {
+                                concurrency = 1;
+                                if let Some(controller) = adaptive.as_mut() {
+                                    controller.throttle();
+                                }
+                                origin_retry_until = origin_retry_until.max(task.ready);
+                            } else if let Some(controller) = adaptive.as_mut() {
+                                controller.throttle();
+                                concurrency = 1;
+                            }
+                            pending.push_back(task);
+                            continue;
+                        }
+                        bail!("{error}");
+                    }
+                }
+                let ready = Instant::now() >= origin_retry_until
+                    && (pending.iter().any(|w| w.ready <= Instant::now())
+                        || (pending.is_empty() && cursor < total));
+                if active.len() < concurrency && ready {
+                    continue;
+                }
+                if !active.is_empty() {
+                    multi.wait(&mut [], Duration::from_millis(100))?;
+                } else if !pending.is_empty() {
+                    let ready = pending
+                        .iter()
+                        .map(|w| w.ready)
+                        .min()
+                        .unwrap()
+                        .max(origin_retry_until);
+                    std::thread::sleep(
+                        ready
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(100)),
+                    );
+                }
             }
-            if active.is_empty() {
-                std::thread::sleep(Duration::from_millis(25));
-            } else {
-                multi.wait(&mut [], Duration::from_millis(100))?;
-            }
+            Ok(())
+        })();
+        drop(active);
+        self.flush_checkpoints(job, &file, &mut checkpoint, metrics)?;
+        outcome?;
+        if self.should_stop(&job.id, options)? {
+            return Ok(None);
         }
+        if prefix != total {
+            bail!("verification_incomplete");
+        }
+        let phase = Instant::now();
+        let digest = verifier.finish(total)?;
+        metrics.verification_tail_ms += crate::performance::milliseconds(phase);
+        Ok(Some(digest))
+    }
+
+    fn flush_checkpoints(
+        &self,
+        job: &Job,
+        file: &File,
+        extents: &mut Vec<Extent>,
+        metrics: &mut crate::performance::Metrics,
+    ) -> Result<()> {
+        if extents.is_empty() {
+            return Ok(());
+        }
+        let phase = Instant::now();
+        file.sync_all()?;
+        metrics.checkpoint_flush_ms += crate::performance::milliseconds(phase);
+        crate::fault::point("after_extent_flush");
+        let phase = Instant::now();
+        self.store
+            .checkpoint_many(&job.id, job.generation, extents)?;
+        metrics.checkpoint_commit_ms += crate::performance::milliseconds(phase);
+        metrics.checkpoint_batches += 1;
+        metrics.checkpoint_blocks += extents.len() as u64;
+        extents.clear();
         Ok(())
     }
 
@@ -558,12 +713,13 @@ impl Engine {
         url: &str,
         file: Arc<File>,
         options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
     ) -> Result<()> {
         let mut resolved = url.to_owned();
         for _ in 0..=5 {
             self.store
                 .start_request(&job.id, job.generation, 0, -1, u32::MAX)?;
-            let easy = transport::handle(
+            let mut easy = transport::handle(
                 &resolved,
                 Mode::Sequential,
                 Some(file.clone()),
@@ -571,8 +727,13 @@ impl Engine {
                 options.speed_limit_bytes,
                 job.public_only,
             )?;
+            easy.get_mut().instrument = metrics.enabled();
+            if let Some(version) = options.http_version {
+                easy.http_version(version)?;
+            }
             let multi = Multi::new();
             let handle = multi.add2(easy)?;
+            metrics.requests += 1;
             let mut meter = Meter::new(0);
             loop {
                 if self.should_stop(&job.id, options)? {
@@ -600,6 +761,7 @@ impl Engine {
                 }
             });
             let easy = multi.remove2(handle)?;
+            metrics.request(&easy);
             let receiver = easy.get_ref();
             if let Some(error) = receiver.error {
                 if error != "transfer_interrupted" {
@@ -705,6 +867,31 @@ impl Engine {
     }
 }
 
+fn staging_options(create: bool) -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(create);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Independent verification readers are allowed; external writers and
+        // deletion are excluded for the complete lifetime of this transfer.
+        options.share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ);
+    }
+    options
+}
+
+fn request_span(total: u64, cursor: u64, connections: usize, override_mib: Option<u8>) -> u64 {
+    if let Some(mib) = override_mib {
+        return u64::from(mib) * BLOCK;
+    }
+    if total < 32 * BLOCK {
+        return BLOCK;
+    }
+    // Shrink toward the tail so a slow final lease cannot monopolize the work.
+    let blocks = (total - cursor).div_ceil(BLOCK);
+    (blocks.div_ceil((connections * 2) as u64)).clamp(1, 16) * BLOCK
+}
+
 fn retry_delay(header: Option<&str>, attempt: u32) -> Option<Duration> {
     if let Some(header) = header {
         let delay = server_delay(header)?;
@@ -732,6 +919,13 @@ pub(crate) fn server_delay(header: &str) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn request_spans_shrink_at_tail_and_preserve_small_file_behavior() {
+        assert_eq!(request_span(3 * BLOCK, 0, 4, None), BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 0, 4, None), 16 * BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 1023 * BLOCK, 4, None), BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 0, 4, Some(8)), 8 * BLOCK);
+    }
     use crate::AddJob;
     #[test]
     fn long_or_unparsed_retry_after_never_retries_early() {

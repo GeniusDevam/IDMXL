@@ -186,6 +186,68 @@ class TransferTests(unittest.TestCase):
     def test_conditional_parallel_ranges(self):
         self.assert_completed(self.add(), "ranged")
 
+    def test_multi_block_request_preserves_recovery_blocks_and_metrics_are_redacted(self):
+        job=self.add("/file?token=do-not-log")
+        metrics=self.directory / "performance.json"
+        result=self.command("run",job["id"],"--connections","1","--request-mib","2","--metrics",str(metrics))
+        self.assertEqual(result["state"],"completed")
+        self.assertEqual(result["sha256"],DIGEST)
+        with sqlite3.connect(self.state / "jobs.db") as db:
+            extents=db.execute("SELECT offset,length FROM extents WHERE job_id=? ORDER BY offset",(job["id"],)).fetchall()
+        db.close()
+        self.assertEqual(extents,[(0,1048576),(1048576,1048576),(2097152,1048576),(3145728,len(DATA)-3145728)])
+        report=json.loads(metrics.read_text())
+        self.assertEqual(report["requests"],2)
+        self.assertEqual(report["checkpoint_blocks"],4)
+        self.assertLess(report["checkpoint_batches"],4)
+        self.assertEqual(report["status"],"completed")
+        self.assertEqual(report["http_versions"],{"HTTP/1.1":2})
+        self.assertNotIn("do-not-log",metrics.read_text())
+        self.assertNotIn(self.base,metrics.read_text())
+
+    def test_multi_block_truncation_resumes_only_missing_suffix(self):
+        job=self.add("/truncate")
+        result=self.command("run",job["id"],"--connections","1","--request-mib","2")
+        self.assertEqual(result["sha256"],DIGEST)
+        self.assertEqual(result["durable_bytes"],str(len(DATA)))
+        self.assertGreater(int(result["failed_requests"]),0)
+
+    def test_eight_request_ceiling_is_saved_and_larger_values_are_rejected(self):
+        job=self.add()
+        saved=self.command("policy",job["id"],input=json.dumps({"connections":8}))
+        self.assertEqual(saved["policy"]["connections"],8)
+        self.command("policy",job["id"],input=json.dumps({"connections":9}),success=False)
+        result=self.command("run",job["id"],"--connections","8")
+        self.assertEqual(result["sha256"],DIGEST)
+
+    def test_pause_inside_long_request_keeps_completed_blocks(self):
+        job=self.add("/slow")
+        process=self.start(job,"--connections","1","--request-mib","3")
+        checkpoint=self.wait_checkpoint(job,process)
+        self.assertGreaterEqual(int(checkpoint["durable_bytes"]),1048576)
+        self.command("pause",job["id"])
+        stdout,stderr=process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        self.assertEqual(json.loads(stdout)["state"],"paused")
+        self.assertGreater(int(json.loads(stdout)["durable_bytes"]),0)
+        result=self.command("run",job["id"],"--connections","2","--request-mib","2")
+        self.assertEqual(result["sha256"],DIGEST)
+
+    @unittest.skipUnless(os.name=="nt","Windows sharing-mode contract")
+    def test_active_staging_excludes_external_writers_and_releases_them_on_pause(self):
+        job=self.add("/slow")
+        process=self.start(job,"--connections","1","--request-mib","3")
+        self.wait_checkpoint(job,process)
+        staging=next(self.directory.glob(".idmxl-*.part"))
+        with self.assertRaises(PermissionError):
+            with staging.open("r+b"):pass
+        self.command("pause",job["id"])
+        stdout,stderr=process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        with staging.open("r+b") as stream:
+            self.assertEqual(stream.read(1),DATA[:1])
+        self.assertEqual(self.command("run",job["id"])["sha256"],DIGEST)
+
     def test_adaptive_ranges_keep_hash_and_identity_contract(self):
         job=self.add()
         result=self.command("run",job["id"],"--connections","4","--adaptive")
@@ -865,14 +927,15 @@ class TransferTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
     def test_abrupt_exit_at_each_durability_boundary(self):
-        for point in ["after_body_write","after_extent_flush","before_extent_commit","after_extent_commit",
-                      "after_publication_intent","after_origin_metadata","after_rename","before_completion_commit"]:
-            with self.subTest(point=point):
-                job=self.add(name=point+".bin")
-                result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"]],
-                                      env=dict(os.environ,IDMXL_FAULT=point),capture_output=True,timeout=15)
-                self.assertEqual(result.returncode,86,result.stderr)
-                self.assert_completed(job)
+        for span in [1,2]:
+            for point in ["after_body_write","after_extent_flush","before_extent_commit","after_extent_commit",
+                          "after_publication_intent","after_origin_metadata","after_rename","before_completion_commit"]:
+                with self.subTest(point=point,request_mib=span):
+                    job=self.add(name=f"{point}-{span}.bin")
+                    result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"],"--request-mib",str(span)],
+                                          env=dict(os.environ,IDMXL_FAULT=point),capture_output=True,timeout=15)
+                    self.assertEqual(result.returncode,86,result.stderr)
+                    self.assert_completed(job)
 
 
 if __name__ == "__main__":
