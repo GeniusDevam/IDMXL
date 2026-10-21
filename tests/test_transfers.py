@@ -212,6 +212,40 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(result["durable_bytes"],str(len(DATA)))
         self.assertGreater(int(result["failed_requests"]),0)
 
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Fault-build storage backpressure fixture")
+    def test_storage_backpressure_replays_callback_once_and_stays_bounded(self):
+        job=self.add()
+        metrics=self.directory / "backpressure.json"
+        env=dict(os.environ,IDMXL_TEST_STORAGE_QUEUE_BYTES="131072",IDMXL_TEST_STORAGE_DELAY_MS="2")
+        result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"],"--request-mib","2","--connections","4","--metrics",str(metrics)],capture_output=True,text=True,encoding="utf-8",env=env,timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
+        view=json.loads(result.stdout)
+        self.assertEqual(view["sha256"],DIGEST)
+        self.assertEqual(hashlib.sha256(Path(view["destination"]).read_bytes()).hexdigest(),DIGEST)
+        report=json.loads(metrics.read_text())
+        self.assertGreater(report["storage_backpressure_events"],0)
+        self.assertLessEqual(report["storage_queue_peak_bytes"],131072)
+
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Fault-build queued-write control fixture")
+    def test_pause_and_cancel_with_queued_writes_never_publish_early(self):
+        for action in ["pause","cancel"]:
+            with self.subTest(action=action):
+                job=self.add(name=f"queued-{action}.bin")
+                env=dict(os.environ,IDMXL_TEST_STORAGE_QUEUE_BYTES="131072",IDMXL_TEST_STORAGE_DELAY_MS="10")
+                process=subprocess.Popen([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"],"--request-mib","2"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",env=env)
+                self.processes.append(process)
+                self.wait_checkpoint(job,process)
+                self.command(action,job["id"])
+                stdout,stderr=process.communicate(timeout=15)
+                self.assertEqual(process.returncode,0,stderr)
+                view=json.loads(stdout)
+                self.assertEqual(view["state"],"paused" if action=="pause" else "canceled")
+                self.assertEqual(view["failed_requests"],"0")
+                self.assertGreater(int(view["durable_bytes"]),0)
+                self.assertFalse(Path(view["destination"]).exists())
+                if action=="pause":
+                    self.assertEqual(self.command("run",job["id"])["sha256"],DIGEST)
+
     def test_eight_request_ceiling_is_saved_and_larger_values_are_rejected(self):
         job=self.add()
         saved=self.command("policy",job["id"],input=json.dumps({"connections":8}))

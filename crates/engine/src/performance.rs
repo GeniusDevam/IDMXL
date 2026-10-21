@@ -28,11 +28,18 @@ pub(crate) struct Metrics {
     pub request_accounting_ms: f64,
     pub callback_write_ms: f64,
     pub callback_hash_ms: f64,
+    pub storage_write_ms: f64,
+    pub storage_hash_ms: f64,
+    pub storage_drain_ms: f64,
+    pub storage_queue_peak_bytes: usize,
+    pub storage_backpressure_events: u64,
     pub requests: u64,
     pub finished_requests: u64,
     pub new_connections: u64,
     pub checkpoint_batches: u64,
     pub checkpoint_blocks: u64,
+    pub checkpoint_target_bytes: u64,
+    pub checkpoint_interval_ms: u64,
     pub http_versions: BTreeMap<String, u64>,
     pub request_dns_ms: f64,
     pub request_connect_ms: f64,
@@ -62,11 +69,18 @@ impl Metrics {
             request_accounting_ms: 0.,
             callback_write_ms: 0.,
             callback_hash_ms: 0.,
+            storage_write_ms: 0.,
+            storage_hash_ms: 0.,
+            storage_drain_ms: 0.,
+            storage_queue_peak_bytes: 0,
+            storage_backpressure_events: 0,
             requests: 0,
             finished_requests: 0,
             new_connections: 0,
             checkpoint_batches: 0,
             checkpoint_blocks: 0,
+            checkpoint_target_bytes: 0,
+            checkpoint_interval_ms: 0,
             http_versions: BTreeMap::new(),
             request_dns_ms: 0.,
             request_connect_ms: 0.,
@@ -80,6 +94,7 @@ impl Metrics {
     }
     pub fn request(&mut self, easy: &curl::easy::Easy2<crate::transport::Receiver>) {
         self.finished_requests += 1;
+        self.storage_backpressure_events += easy.get_ref().backpressure_events;
         if !self.enabled() {
             return;
         }

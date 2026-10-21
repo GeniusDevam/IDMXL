@@ -133,9 +133,9 @@ class MediaTests(unittest.TestCase):
     def test_media_publication_recovers_with_the_owned_output_after_process_loss(self):
         job=self.add('/audio.aac','m4a',True)
         env=dict(os.environ,IDMXL_FAULT='before_media_assembly',IDMXL_TEST_MEDIA_DIR=str(HELPERS))
-        first=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(first.returncode,86)
+        first=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(first.returncode,86,first.stderr)
         env['IDMXL_FAULT']='after_rename'
-        second=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(second.returncode,86)
+        second=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(second.returncode,86,second.stderr)
         done=self.command('run',job['id']);self.assertEqual(done['state'],'completed');self.assertEqual(self.packets(Path(done['destination']),'a'),self.aac_payloads())
         if os.name=='nt':self.assertIn('ZoneId=3',Path(done['destination']+':Zone.Identifier').read_text())
     @unittest.skipUnless(os.environ.get('IDMXL_FAULT_EXE'),'Run -Faults for retained-track corruption checks')

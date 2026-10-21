@@ -11,12 +11,21 @@ count actual requests; regrouping after interruption cannot replenish a budget.
 Complete written blocks can be checkpointed during an active multi-block lease.
 Retries request only its unfinished suffix, preserving immutable completed bytes.
 
-The engine coalesces range writes into bounded 128 KiB buffers. Checkpoints batch
-at 8 MiB or 500 ms between network iterations, flush file data first, then commit
+Network callbacks feed a 16 MiB bounded FIFO and pause without accepting a
+callback when it is full. One storage worker coalesces writes into bounded
+128 KiB per-range buffers, hashes written blocks and owns the durable batches.
+End markers precede retry data in that FIFO, so a stale partial buffer cannot
+overwrite a new lease. Complete written-prefix notifications feed verification;
+queued network bytes are never presented as durable. Checkpoints batch
+at 32 MiB or 2 seconds for files at least 32 MiB (otherwise 8 MiB or 500 ms),
+checked between queued storage messages. Batches flush file data first, then commit
 extent records and an idempotent durable-byte delta in one FULL transaction.
 Pause, completion and transfer errors flush pending complete blocks. Volatile
-progress uses an independent NORMAL SQLite connection, so speed/ETA updates do
-not force a FULL sync while critical recovery/publication transactions retain it.
+progress and request-start counters use an independent NORMAL SQLite connection,
+so they do not force a FULL sync. Admission acquires writer ownership before
+reading the committed retry budget; failed budgets and critical recovery and
+publication transactions retain FULL synchronization. Power loss can roll back
+recent start counters and uncommitted progress, never a durable failed budget.
 
 An independent reader thread computes standard whole-file SHA-256 over the
 growing immutable prefix. It waits for holes, checks cancellation between reads,

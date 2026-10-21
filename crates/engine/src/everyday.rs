@@ -91,7 +91,7 @@ impl Store {
         length: u64,
         retries: u32,
     ) -> Result<()> {
-        let tx = self.write_transaction()?;
+        let tx = self.request_transaction()?;
         let end = offset
             .checked_add(length)
             .context("invalid_content_range")?;
@@ -198,6 +198,13 @@ mod tests {
     use crate::AddJob;
     #[test]
     fn request_admission_waits_for_the_writer_and_reads_the_committed_retry_budget() {
+        admission_waits(false);
+    }
+    #[test]
+    fn range_admission_waits_for_the_durable_retry_budget() {
+        admission_waits(true);
+    }
+    fn admission_waits(range: bool) {
         use std::{sync::mpsc, time::Duration};
         let root = tempfile::tempdir().unwrap();
         let writer = Store::open(root.path()).unwrap();
@@ -221,12 +228,12 @@ mod tests {
             .unwrap();
         let (send, receive) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            send.send(
-                reader
-                    .start_request(&job.id, 0, 0, 1024, 2)
-                    .map_err(|e| e.to_string()),
-            )
-            .unwrap();
+            let result = if range {
+                reader.start_range(&job.id, 0, 0, 1024, 2)
+            } else {
+                reader.start_request(&job.id, 0, 0, 1024, 2)
+            };
+            send.send(result.map_err(|e| e.to_string())).unwrap();
         });
         let early = receive.recv_timeout(Duration::from_millis(200));
         writer.db.execute_batch("COMMIT").unwrap();

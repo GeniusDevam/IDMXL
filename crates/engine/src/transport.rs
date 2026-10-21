@@ -66,6 +66,9 @@ pub struct Receiver {
     pub(crate) instrument: bool,
     pub(crate) write_ms: f64,
     pub(crate) hash_ms: f64,
+    pub(crate) storage: Option<crate::storage::Target>,
+    pub(crate) disk_paused: bool,
+    pub(crate) backpressure_events: u64,
     buffer: Vec<u8>,
     file: Option<Arc<File>>,
     stop: Arc<AtomicBool>,
@@ -86,6 +89,9 @@ impl Receiver {
             instrument: false,
             write_ms: 0.,
             hash_ms: 0.,
+            storage: None,
+            disk_paused: false,
+            backpressure_events: 0,
             buffer: Vec::new(),
             file,
             stop,
@@ -274,6 +280,39 @@ impl Handler for Receiver {
             return Ok(0);
         }
         if let Mode::Range { offset, length, .. } = self.mode {
+            if let Some(storage) = &self.storage {
+                let phase = self.instrument.then(std::time::Instant::now);
+                let result = storage.sender.write(
+                    storage.token,
+                    storage.start,
+                    storage.length,
+                    offset + self.bytes,
+                    data,
+                );
+                if let Some(phase) = phase {
+                    self.write_ms += crate::performance::milliseconds(phase);
+                }
+                match result {
+                    Ok(true) => {
+                        self.bytes = end;
+                        self.block_bytes = if end == length {
+                            end
+                        } else {
+                            end / RECOVERY_BLOCK * RECOVERY_BLOCK
+                        };
+                        return Ok(data.len());
+                    }
+                    Ok(false) => {
+                        self.disk_paused = true;
+                        self.backpressure_events += 1;
+                        return Err(WriteError::Pause);
+                    }
+                    Err(_) => {
+                        self.error = Some("storage_write_failed");
+                        return Ok(0);
+                    }
+                }
+            }
             let accepted_before = self.bytes;
             let blocks_before = self.block_bytes;
             let completed_before = self.completed.len();

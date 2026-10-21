@@ -91,6 +91,8 @@ def main():
     parser.add_argument("--repeats",type=int,default=3)
     parser.add_argument("--public",action="store_true",help="Downloads the fixed 399 MB publisher file per engine/run")
     parser.add_argument("--only-public",action="store_true")
+    parser.add_argument("--warmup",action="store_true",help="Verify one generated warm-up per engine before timed cases")
+    parser.add_argument("--case",action="append",choices=["unlimited","request-latency-30ms","shared-configured-80mbps","per-request-1mbps","adaptive-per-request"],help="Select local case(s); repeat this option to select several")
     args=parser.parse_args()
     root=args.output.resolve();root.mkdir(parents=True,exist_ok=False)
     engines={"baseline":args.baseline.resolve(),"candidate":args.candidate.resolve()}
@@ -103,8 +105,15 @@ def main():
     server.guard=threading.Lock();server.next_send=0.;server.aggregate=0;server.per_request=0;server.latency=0
     threading.Thread(target=server.serve_forever,daemon=True).start()
     cases=[] if args.only_public else [("unlimited",0,0,0,[]),("request-latency-30ms",0,0,.03,[]),("shared-configured-80mbps",10000000,0,0,[]),("per-request-1mbps",0,1000000,0,[]),("adaptive-per-request",0,1000000,0,["--adaptive"])]
+    if args.case:cases=[case for case in cases if case[0] in args.case]
     results=[];rng=random.Random(20261021)
+    warmups=[]
     try:
+        if args.warmup:
+            for label,engine in engines.items():
+                warmups.append(run_engine(engine,label,"warmup",root,f"http://127.0.0.1:{server.server_port}/file",len(data),hashlib.sha256(data).hexdigest(),[],label=="candidate"))
+                assert warmups[-1]["verified"],warmups[-1]
+            (root/"warmups.json").write_text(json.dumps(warmups,indent=2)+"\n",encoding="utf-8")
         for case,aggregate,per_request,latency,extra in cases:
             server.aggregate=aggregate;server.per_request=per_request;server.latency=latency
             for repeat in range(args.repeats):
@@ -129,7 +138,7 @@ def main():
         group={label:{"mean_seconds":statistics.mean(r["seconds"] for r in rows),"median_seconds":statistics.median(r["seconds"] for r in rows),"runs":len(rows),"verified":all(r["verified"] for r in rows),"mean_requests":statistics.mean(r.get("requests",0) for r in rows)} for label,rows in modes.items()}
         group["candidate_time_reduction_percent"]=100*(1-group["candidate"]["mean_seconds"]/group["baseline"]["mean_seconds"])
         summary[case]=group
-    evidence={"engines":{label:{"path":str(path),"sha256":sha(path)} for label,path in engines.items()},"summary":summary,"limitations":"Paired serial release-engine runs on one laptop. Local rates are configured fixture ceilings, not a calibrated broadband simulator. Candidate instrumentation enabled; baseline lacks this feature. No IDM product comparison is implied."}
+    evidence={"engines":{label:{"path":str(path),"sha256":sha(path)} for label,path in engines.items()},"summary":summary,"warmups":len(warmups),"limitations":"Paired serial release-engine runs on one laptop. Local rates are configured fixture ceilings, not a calibrated broadband simulator. Candidate instrumentation enabled; baseline lacks this feature. No IDM product comparison is implied."}
     (root/"summary.json").write_text(json.dumps(evidence,indent=2)+"\n",encoding="utf-8")
     print(json.dumps(summary,indent=2),flush=True)
     if not all(r["verified"] for r in results):raise SystemExit("A download failed verification; inspect raw results")

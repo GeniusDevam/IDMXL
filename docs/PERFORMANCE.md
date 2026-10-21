@@ -11,17 +11,31 @@ the browser's transport and do not receive these native-engine optimizations.
 - For files at least 32 MiB, HTTP requests group extents into **1–16 MiB leases**.
   The scheduler shrinks leases as the remaining work decreases and never spans
   an already verified saved extent. Smaller files retain 1 MiB requests.
-- Receive callbacks coalesce positional writes into at most **128 KiB per active
-  range**, then emit hashes only for completely written recovery blocks.
-- Completed extents are checkpointed together after **8 MiB** or **500 ms**,
-  checked between network iterations. The threshold can be exceeded by the work
-  delivered during an iteration. Pause, transfer failure and normal completion
+- Receive callbacks enqueue validated bytes in a **16 MiB bounded queue**. A
+  storage worker coalesces positional writes into at most **128 KiB per active
+  range**, computes block hashes, and announces only completely written blocks.
+  When the queue fills, libcurl is paused and later resumes the unaccepted
+  callback exactly once. Extra memory used by TLS/HTTP libraries and operating
+  system socket buffers is separate from this owned-queue bound.
+- Completed extents are checkpointed together after **32 MiB** or **2 seconds**
+  for files at least 32 MiB; smaller files use **8 MiB** or **500 ms**. The
+  worker checks the thresholds between queued messages, so a threshold can be
+  exceeded by the last message. Pause, transfer failure and normal completion
   flush the remaining complete extents. Partial blocks are fetched again.
 - Every durable batch follows **write → data flush → FULL SQLite transaction**.
   Checkpoint totals use idempotent deltas, rather than rescanning all extents.
-- A separate SQLite connection uses NORMAL synchronization only for transient
-  speed/received/ETA updates. Recovery, request budgets, identity and publication
-  continue using the FULL connection. Recovery resets transient progress.
+- Writes and checkpoints run on the storage worker, allowing network reception
+  to continue through short disk stalls. Per-request end markers precede retry
+  data in the same FIFO, so old incomplete buffers cannot overwrite a retry.
+  Pause/cancel drain accepted work, save complete blocks and join both workers;
+  they never publish an unfinished destination. A slow or failed disk still
+  limits total completion time once bounded buffering is exhausted.
+- A separate SQLite connection uses NORMAL synchronization for transient
+  speed/received/ETA updates and request-start counters. Admission obtains writer
+  ownership before reading the latest committed retry budget. Failed-retry
+  budgets, recovery extents, identity and publication keep FULL synchronization.
+  Recovery resets transient progress; a power loss can roll back recent start
+  counters, but cannot replenish a previously durable failed-retry budget.
 - An independent read handle hashes the growing completed prefix in a worker
   thread. Standard whole-file SHA-256 is retained; chunk digests are not combined
   as a substitute. Publication waits for the completed file, data flush, final
@@ -32,7 +46,8 @@ the browser's transport and do not receive these native-engine optimizations.
 - Available request slots are refilled immediately. Idle retry waits remain
   bounded, and active requests still respect persistent origin Retry-After.
 
-An abrupt process exit can lose recent uncommitted progress; saved extents are
+Larger checkpoint batches trade fewer storage barriers for more refetching
+after an abrupt exit. A process exit can lose recent uncommitted progress; saved extents are
 never advertised as durable before their data flush. Saved blocks are hashed
 again on resume. Hardware power-loss behavior remains a separate qualification.
 
@@ -67,8 +82,13 @@ and protocol information covers finished body requests; interrupted active
 requests may be absent. Probe timing is separate.
 
 `download_ms` excludes resume validation and the remaining verifier wait.
-Checkpoint, callback and request-accounting costs are sub-costs of downloading;
-do not add them to the phase total. Per-request DNS/connect/TLS/first-byte fields
+Checkpoint, storage, callback and request-accounting costs are sub-costs of
+downloading and may overlap across threads; do not add them to the phase total.
+`callback_write_ms` records enqueue work for asynchronous range transfers;
+`storage_write_ms`/`storage_hash_ms` record worker activity and
+`storage_drain_ms` records the remaining writer wait at the end. Queue peak and
+backpressure counters permit bounded-buffer qualification.
+Per-request DNS/connect/TLS/first-byte fields
 are sums of libcurl's cumulative request timestamps, can overlap across requests,
 and must not be interpreted as an additive wall-time breakdown. Diagnostics add
 measurement overhead and should also be compared with an uninstrumented run.
@@ -95,14 +115,16 @@ Keep a byte-identical copy of the previous release and build the candidate in
 release mode, then run:
 
 ```powershell
-python .\scripts\benchmark-performance.py --baseline C:\bench\baseline.exe --candidate .\target\release\idmxl.exe --output .\.local\performance-run --repeats 3
+python .\scripts\benchmark-performance.py --baseline C:\bench\baseline.exe --candidate .\target\release\idmxl.exe --output .\.local\performance-run --repeats 3 --warmup
 ```
 
 The output directory must not already exist. The script alternates randomized
 paired runs over generated, block-distinct local data. Every result is checked
 against the reference digest before its owned payload is individually removed.
 It retains isolated profiles, raw replies, metrics, binary hashes and summaries.
-It never opens the normal application history.
+It never opens the normal application history. `--warmup` retains one excluded,
+verified generated warm-up per engine. Repeat `--case <name>` to select local
+cases when investigating a specific result.
 
 `--public` additionally downloads the fixed 399 MB Blender test ZIP per engine
 and repetition, using its pinned publisher SHA-256. `--only-public` runs that

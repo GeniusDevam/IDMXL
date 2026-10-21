@@ -20,8 +20,6 @@ use crate::{
 };
 
 const BLOCK: u64 = transport::RECOVERY_BLOCK;
-const CHECKPOINT_BYTES: u64 = 8 * BLOCK;
-const CHECKPOINT_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 pub struct RunOptions {
@@ -60,6 +58,7 @@ struct Work {
     length: u64,
     attempt: u32,
     ready: Instant,
+    accounted: u64,
 }
 
 struct Meter {
@@ -408,6 +407,14 @@ impl Engine {
             bail!("staging_identity_mismatch");
         }
         let verifier = crate::verification::Verifier::new(reader);
+        let mut storage = crate::storage::Pipeline::new(
+            &self.store,
+            &job.id,
+            job.generation,
+            file.clone(),
+            metrics.enabled(),
+            total,
+        )?;
         let mut prefix = 0;
         while prefix < total && valid.contains(&prefix) {
             prefix += BLOCK.min(total - prefix);
@@ -415,9 +422,8 @@ impl Engine {
         verifier.advance(prefix);
         let durable = self.store.get(&job.id)?.durable;
         let mut written = durable;
-        let mut checkpoint = Vec::new();
-        let mut checkpoint_bytes = 0;
-        let mut checkpoint_time = Instant::now();
+        let mut accepted = durable;
+        let mut ending = VecDeque::new();
         let mut meter = Meter::new(durable);
         let mut pending: VecDeque<Work> = VecDeque::new();
         let mut cursor = 0;
@@ -443,15 +449,28 @@ impl Engine {
         let mut sample_bytes = durable;
         let mut origin_retry_until = Instant::now();
         let outcome = (|| -> Result<()> {
-            while cursor < total || !pending.is_empty() || !active.is_empty() {
+            while cursor < total || !pending.is_empty() || !active.is_empty() || !ending.is_empty()
+            {
                 if self.should_stop(&job.id, options)? {
                     return Ok(());
+                }
+                // End markers must precede any retry data in the single writer
+                // FIFO, so incomplete old buffers cannot overwrite a new lease.
+                while let Some(token) = ending.front().copied() {
+                    if !storage.end(token)? {
+                        break;
+                    }
+                    ending.pop_front();
+                }
+                if !ending.is_empty() {
+                    std::thread::sleep(Duration::from_millis(2));
+                    continue;
                 }
                 while active.len() < concurrency {
                     if Instant::now() < origin_retry_until {
                         break;
                     }
-                    let task = if let Some(index) =
+                    let mut task = if let Some(index) =
                         pending.iter().position(|task| task.ready <= Instant::now())
                     {
                         pending.remove(index).expect("known retry index")
@@ -477,10 +496,12 @@ impl Engine {
                             length,
                             attempt: 0,
                             ready: Instant::now(),
+                            accounted: 0,
                         };
                         cursor += task.length;
                         task
                     };
+                    task.accounted = 0;
                     let phase = Instant::now();
                     self.store.start_range(
                         &job.id,
@@ -511,37 +532,40 @@ impl Engine {
                         easy.http_version(version)?;
                     }
                     token += 1;
+                    easy.get_mut().storage = Some(storage.target(token, task.offset, task.length));
                     let mut handle = multi.add2(easy)?;
                     metrics.requests += 1;
                     handle.set_token(token)?;
                     active.insert(token, (handle, task));
                 }
-                multi.perform()?;
-                for (handle, _) in active.values_mut() {
-                    for extent in std::mem::take(&mut handle.get_mut().completed) {
-                        written += extent.length;
-                        checkpoint_bytes += extent.length;
-                        valid.insert(extent.offset);
-                        checkpoint.push(extent);
+                if storage.ready() {
+                    for (handle, _) in active.values_mut() {
+                        if handle.get_ref().disk_paused {
+                            handle.get_mut().disk_paused = false;
+                            handle.unpause_write()?;
+                        }
                     }
+                }
+                multi.perform()?;
+                for (handle, task) in active.values_mut() {
+                    accepted += handle.get_ref().block_bytes.saturating_sub(task.accounted);
+                    task.accounted = handle.get_ref().block_bytes;
+                }
+                for event in storage.events() {
+                    let crate::storage::Event::Written { offset, length } = event;
+                    written += length;
+                    valid.insert(offset);
                 }
                 while prefix < total && valid.contains(&prefix) {
                     prefix += BLOCK.min(total - prefix);
                 }
                 verifier.advance(prefix);
-                if checkpoint_bytes >= CHECKPOINT_BYTES
-                    || (!checkpoint.is_empty() && checkpoint_time.elapsed() >= CHECKPOINT_INTERVAL)
-                {
-                    self.flush_checkpoints(job, &file, &mut checkpoint, metrics)?;
-                    checkpoint_bytes = 0;
-                    checkpoint_time = Instant::now();
-                }
-                // Completed blocks of active leases are already included in written.
+                // Accepted complete blocks include queued data; partial blocks do not.
                 let partial: u64 = active
                     .values()
                     .map(|(handle, _)| handle.get_ref().bytes - handle.get_ref().block_bytes)
                     .sum();
-                let received = written.saturating_add(partial).min(total);
+                let received = accepted.saturating_add(partial).min(total);
                 if let Some(controller) = adaptive.as_mut()
                     && sample_time.elapsed() >= Duration::from_secs(1)
                 {
@@ -566,6 +590,7 @@ impl Engine {
                     let (handle, mut task) =
                         active.remove(&token).context("unknown_transfer_token")?;
                     let easy = multi.remove2(handle)?;
+                    ending.push_back(token);
                     metrics.request(&easy);
                     let receiver = easy.get_ref();
                     let error = receiver
@@ -650,7 +675,9 @@ impl Engine {
                 if active.len() < concurrency && ready {
                     continue;
                 }
-                if !active.is_empty() {
+                if !active.is_empty() && active.values().all(|(h, _)| h.get_ref().disk_paused) {
+                    std::thread::sleep(Duration::from_millis(2));
+                } else if !active.is_empty() {
                     multi.wait(&mut [], Duration::from_millis(100))?;
                 } else if !pending.is_empty() {
                     let ready = pending
@@ -669,42 +696,38 @@ impl Engine {
             Ok(())
         })();
         drop(active);
-        self.flush_checkpoints(job, &file, &mut checkpoint, metrics)?;
+        let phase = Instant::now();
+        let stats = storage.finish()?;
+        metrics.storage_drain_ms = crate::performance::milliseconds(phase);
+        metrics.storage_write_ms = stats.write_ms;
+        metrics.storage_hash_ms = stats.hash_ms;
+        metrics.storage_queue_peak_bytes = stats.queue_peak_bytes;
+        metrics.checkpoint_target_bytes = stats.checkpoint_target_bytes;
+        metrics.checkpoint_interval_ms = stats.checkpoint_interval_ms;
+        metrics.checkpoint_flush_ms = stats.flush_ms;
+        metrics.checkpoint_commit_ms = stats.commit_ms;
+        metrics.checkpoint_batches = stats.batches;
+        metrics.checkpoint_blocks = stats.blocks;
+        for event in storage.events() {
+            let crate::storage::Event::Written { offset, length } = event;
+            written += length;
+            valid.insert(offset);
+        }
+        while prefix < total && valid.contains(&prefix) {
+            prefix += BLOCK.min(total - prefix);
+        }
+        verifier.advance(prefix);
         outcome?;
         if self.should_stop(&job.id, options)? {
             return Ok(None);
         }
-        if prefix != total {
+        if prefix != total || written != total {
             bail!("verification_incomplete");
         }
         let phase = Instant::now();
         let digest = verifier.finish(total)?;
         metrics.verification_tail_ms += crate::performance::milliseconds(phase);
         Ok(Some(digest))
-    }
-
-    fn flush_checkpoints(
-        &self,
-        job: &Job,
-        file: &File,
-        extents: &mut Vec<Extent>,
-        metrics: &mut crate::performance::Metrics,
-    ) -> Result<()> {
-        if extents.is_empty() {
-            return Ok(());
-        }
-        let phase = Instant::now();
-        file.sync_all()?;
-        metrics.checkpoint_flush_ms += crate::performance::milliseconds(phase);
-        crate::fault::point("after_extent_flush");
-        let phase = Instant::now();
-        self.store
-            .checkpoint_many(&job.id, job.generation, extents)?;
-        metrics.checkpoint_commit_ms += crate::performance::milliseconds(phase);
-        metrics.checkpoint_batches += 1;
-        metrics.checkpoint_blocks += extents.len() as u64;
-        extents.clear();
-        Ok(())
     }
 
     fn download_sequential(

@@ -14,7 +14,7 @@ use crate::{
 
 pub struct Store {
     pub(crate) db: Connection,
-    // Only volatile progress uses NORMAL. Critical history/recovery transactions
+    // Volatile progress/request-start counters use NORMAL. Critical recovery
     // always use the independent FULL connection above.
     progress_db: Connection,
     pub directory: PathBuf,
@@ -27,6 +27,14 @@ impl Store {
     /// mode even with busy_timeout when another connection commits first.
     pub(crate) fn write_transaction(&self) -> rusqlite::Result<rusqlite::Transaction<'_>> {
         rusqlite::Transaction::new_unchecked(&self.db, rusqlite::TransactionBehavior::Immediate)
+    }
+
+    pub(crate) fn request_transaction(&self) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+        // Acquire writer ownership before checking the fully durable retry budget.
+        rusqlite::Transaction::new_unchecked(
+            &self.progress_db,
+            rusqlite::TransactionBehavior::Immediate,
+        )
     }
 
     pub fn open(directory: &Path) -> Result<Self> {
@@ -147,7 +155,7 @@ impl Store {
         drop(idle_locks);
         let progress_db = Connection::open(directory.join("jobs.db"))?;
         progress_db.busy_timeout(std::time::Duration::from_secs(5))?;
-        progress_db.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        progress_db.execute_batch("PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")?;
         Ok(Self {
             db,
             progress_db,
