@@ -2,12 +2,27 @@
 
 ## 21 October 2026: transfer performance pipeline
 
-The optimized engine passes **195 local top-level checks**: 56 Rust (55 engine
-and one native framing), 64 Python transfer/media/private-CA HTTP2 cases, the
+The optimized engine passes **199 local top-level checks**: 58 Rust (57 engine
+and one native framing), 66 Python transfer/media/private-CA HTTP2 cases, the
 separate real >4 GiB resource case, and 74 extension/link-import Node cases.
-The ordinary Python run reports 65 cases with only the optional resource case
+The ordinary Python run reports 67 cases with only the optional resource case
 skipped; that case was subsequently enabled and passed separately. Root Clippy
 with warnings denied, formatting and the TypeScript/Vite build pass.
+
+New storage cases force a 128 KiB queue and a slow writer, prove that paused
+libcurl callbacks are accepted exactly once and remain within that bound, and
+pause/cancel with queued writes without publishing an unfinished file. A
+read-only staging handle demonstrates that writer failure cannot create a
+durable extent. Contended request admission waits for and reads the committed
+FULL retry budget even when its start counter uses NORMAL synchronization.
+
+The first complete run had one media-publication fault case return exit 1
+instead of the intended injected exit 86, before assembly. Its original error
+was not retained by that assertion. The assertion now includes stderr. All seven
+media cases subsequently passed, followed by the complete 67-case recheck
+(92.257 seconds, one optional resource skip). The initial failure is retained
+as an unresolved intermittent observation; concurrent building is not an
+established cause.
 
 Recovery tests cover abrupt exits at all eight write/flush/commit/publication
 boundaries using both 1 MiB and grouped 2 MiB HTTP leases. New cases cover grouped
@@ -22,13 +37,36 @@ The release resource test transferred **4,294,967,553 bytes** with distinct
 SHA-derived 64 KiB block patterns, verified SHA-256
 `f69b5a49cb06ef8cfb5c521d994afe33b74dbb0358fd15e8d56dbc3a2cbba46e`, and
 published through a **397-character Unicode path**. Total fixture execution was
-147.012 seconds, including setup/reference work; it is not an internet speed
+137.344 seconds, including setup/reference work; it is not an internet speed
 measurement. Its owned payload was removed by test cleanup. Tested engine SHA-256:
-`5bd118238e29b62ffce152df3bad7dcd34d83f5fa2a61807b2545fd77703d942`.
+`ad51c56d30c4d835c4a49c2498aee8c5e610a49b162a9bdcc2d08877c0a0ceaf`.
 
-The new engine comparison uses the previous byte-identical release and the new
-release with identical generated files and requested concurrency. Results and
-updated preview package qualification are recorded after measurement. The
+The updated NSIS installer and native desktop build pass, as does native Clippy
+with warnings denied. The isolated update helper preserves two history IDs, a
+completed file and 2,097,152 saved bytes from the original engine. The replacement
+engine resumes in the same generation without requesting those saved body
+blocks, produces the exact reference SHA-256, and passes SQLite integrity_check.
+This does not assert that the user's normal-session installation was replaced.
+
+Thirty final controlled local downloads all verified. Mean time reductions
+against the preserved original engine ranged from 18.97% to 79.22% in the five
+configured cases; full distributions and slow samples are retained. These are
+single-laptop fixtures, not calibrated internet measurements. A separate
+diagnostic-on/off comparison retains its own raw results without correcting
+the reported download times.
+
+The contemporary public comparison used three downloads per app of the same
+399,051,129-byte official Blender ZIP, saved IDM setting eight and IDMXL requested
+parallelism eight. All six published SHA-256 values matched. IDM averaged
+55.572 seconds (median 54.208); IDMXL averaged 48.245 (median 48.478), or 13.19%
+less mean time. This is one-source evidence with lifecycle/verification and
+unmeasured socket/resource limitations. It does not qualify broad IDM parity
+or superiority. Each owned ZIP was removed after verification.
+
+[Windows CI](https://github.com/GeniusDevam/IDMXL/actions/runs/39589624438) passes
+for tested code `673a8d3`. Full results, binary hashes and preview qualification
+are in [PERFORMANCE-RESULTS.md](PERFORMANCE-RESULTS.md) and
+[numeric evidence](evidence/performance.json). The
 design and remaining HTTP3/mirror/network-profile qualification are documented
 in [PERFORMANCE.md](PERFORMANCE.md).
 

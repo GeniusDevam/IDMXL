@@ -5,6 +5,9 @@ the resulting file before publication. Performance depends on the source,
 network and storage; acceleration is conditional. Browser-assisted transfers use
 the browser's transport and do not receive these native-engine optimizations.
 
+Measured results and preview qualification are recorded in
+[PERFORMANCE-RESULTS.md](PERFORMANCE-RESULTS.md).
+
 ## Transfer pipeline
 
 - Recovery extents remain **1 MiB**, preserving existing saved downloads.

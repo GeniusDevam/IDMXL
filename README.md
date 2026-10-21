@@ -23,7 +23,8 @@
 | Local state | SQLite history and Windows user-scoped protection for source URLs. Python is not required to run the built application. |
 
 The native engine groups larger HTTP ranges while retaining 1 MiB recovery
-blocks, batches durable checkpoints, and refills idle request slots immediately.
+blocks, uses a bounded background disk writer, batches durable checkpoints,
+and refills idle request slots immediately.
 See [performance design and reproducible benchmarks](docs/PERFORMANCE.md).
 Speed depends on the source and connection; a universal advantage over IDM has
 not been established.
