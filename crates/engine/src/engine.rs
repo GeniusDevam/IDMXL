@@ -1,5 +1,6 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
     fs::{File, OpenOptions},
     path::PathBuf,
     sync::{
@@ -54,6 +55,39 @@ impl Default for RunOptions {
 
 pub struct Engine {
     pub store: Store,
+    sessions: RefCell<HashMap<String, TransferSession>>,
+}
+
+// Only the owning process may reuse validation. The Windows staging handle
+// denies writes/deletion for its entire lifetime, including cooldowns/yields.
+// A separate job lease prevents another worker from changing its DB state
+// while the profile-wide engine lock is released for other downloads.
+struct TransferSession {
+    _lease: File,
+    range: Option<RangeSession>,
+    used: Instant,
+}
+
+struct RangeSession {
+    file: Arc<File>,
+    job: Job,
+    valid: HashMap<u64, Extent>,
+    verifier: crate::verification::Verifier,
+}
+
+impl RangeSession {
+    fn matches(&self, job: &Job) -> bool {
+        cfg!(windows)
+            && self.job.generation == job.generation
+            && self.job.total == job.total
+            && self.job.etag == job.etag
+            && self.job.resolved_url == job.resolved_url
+            && self.job.staging == job.staging
+            && self
+                .file
+                .metadata()
+                .is_ok_and(|m| Some(m.len()) == job.total)
+    }
 }
 
 #[derive(Clone)]
@@ -91,7 +125,26 @@ impl Meter {
 
 impl Engine {
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self {
+            store,
+            sessions: RefCell::new(HashMap::new()),
+        }
+    }
+
+    pub(crate) fn prune_sessions(&self) {
+        self.sessions.borrow_mut().retain(|id, _| {
+            let parent_running = self.store.db.query_row(
+                "SELECT NOT EXISTS(SELECT 1 FROM media_components c JOIN jobs p ON p.id=c.parent_id WHERE c.job_id=?1 AND (p.requested IN ('paused','canceled') OR p.state IN ('failed','completed','canceled')))",
+                [id], |r| r.get::<_, bool>(0)).unwrap_or(false);
+            parent_running && self.store.get(id).is_ok_and(|j| {
+                matches!(j.state.as_str(), "waiting" | "queued" | "paused")
+                    && matches!(j.requested.as_str(), "run" | "queued")
+            })
+        });
+    }
+
+    pub(crate) fn release_sessions(&self) {
+        self.sessions.borrow_mut().clear();
     }
 
     /// Reconcile orphaned active states only while no transfer process owns the profile.
@@ -194,6 +247,7 @@ impl Engine {
         if metrics.finish(status).is_err() {
             eprintln!("performance_report_write_failed");
         }
+        self.prune_sessions();
         result
     }
 
@@ -206,6 +260,58 @@ impl Engine {
         id: &str,
         options: &RunOptions,
         metrics: &mut crate::performance::Metrics,
+    ) -> Result<JobView> {
+        self.prune_sessions();
+        let cached = self.sessions.borrow_mut().remove(id);
+        let mut session = if let Some(session) = cached {
+            session
+        } else {
+            let job = self.store.get(id)?;
+            let lease = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(
+                    self.store
+                        .directory
+                        .join(format!("transfer-{}.lock", job.id)),
+                )?;
+            fs2::FileExt::try_lock_exclusive(&lease).context("engine_busy")?;
+            TransferSession {
+                _lease: lease,
+                range: None,
+                used: Instant::now(),
+            }
+        };
+        let result = self.execute_locked(id, options, metrics, &mut session);
+        if result.is_ok()
+            && self.store.get(id).is_ok_and(|j| {
+                matches!(j.state.as_str(), "waiting" | "paused") && j.requested == "run"
+            })
+        {
+            session.used = Instant::now();
+            let mut sessions = self.sessions.borrow_mut();
+            // Bound open handles and verification workers when many origins wait.
+            if sessions.len() >= 8
+                && let Some(oldest) = sessions
+                    .iter()
+                    .min_by_key(|(_, s)| s.used)
+                    .map(|(id, _)| id.clone())
+            {
+                sessions.remove(&oldest);
+            }
+            sessions.insert(id.to_owned(), session);
+        }
+        result
+    }
+
+    fn execute_locked(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+        session: &mut TransferSession,
     ) -> Result<JobView> {
         let job = self.store.get(id)?;
         self.store.capture_runnable(id)?;
@@ -234,7 +340,7 @@ impl Engine {
         if !self.store.begin(id, &job.state, &job.requested)? {
             return self.store.view(id);
         }
-        match self.transfer(id, options, metrics) {
+        match self.transfer(id, options, metrics, session) {
             Ok(()) => self.store.view(id),
             Err(error) => {
                 let canceled =
@@ -339,11 +445,12 @@ impl Engine {
         id: &str,
         options: &RunOptions,
         metrics: &mut crate::performance::Metrics,
+        session: &mut TransferSession,
     ) -> Result<()> {
         if self.store.is_media(id)? {
             return crate::media::execute(self, id, options);
         }
-        self.transfer_file(id, options, metrics)
+        self.transfer_file(id, options, metrics, session)
     }
 
     fn transfer_file(
@@ -351,6 +458,7 @@ impl Engine {
         id: &str,
         options: &RunOptions,
         metrics: &mut crate::performance::Metrics,
+        session: &mut TransferSession,
     ) -> Result<()> {
         let mut job = self.store.get(id)?;
         if job.destination.exists() {
@@ -391,11 +499,16 @@ impl Engine {
             !reuse,
         )?;
         job = self.store.get(id)?;
-        let file = if reuse {
+        if !reuse || !session.range.as_ref().is_some_and(|s| s.matches(&job)) {
+            session.range = None;
+        }
+        let file = if let Some(saved) = &session.range {
+            saved.file.clone()
+        } else if reuse {
             if platform::is_reparse(&job.staging)? {
                 bail!("staging_reparse_point");
             }
-            staging_options(false).open(&job.staging)?
+            Arc::new(staging_options(false).open(&job.staging)?)
         } else {
             if job.staging.exists() {
                 if platform::is_reparse(&job.staging)? {
@@ -403,7 +516,7 @@ impl Engine {
                 }
                 std::fs::remove_file(&job.staging)?;
             }
-            staging_options(true).open(&job.staging)?
+            Arc::new(staging_options(true).open(&job.staging)?)
         };
         if let Some(total) = total {
             let needed = total.saturating_sub(job.durable);
@@ -413,12 +526,11 @@ impl Engine {
                 bail!("insufficient_disk_space");
             }
         }
-        let file = Arc::new(file);
         let phase = Instant::now();
         let prior_validation = metrics.resume_validation_ms;
         let prior_verification = metrics.verification_tail_ms;
         let downloaded = if ranged {
-            self.download_ranges(&job, file.clone(), options, metrics)
+            self.download_ranges(&job, file.clone(), options, metrics, &mut session.range)
         } else {
             self.download_sequential(&job, &resolved, file.clone(), options, metrics)
                 .map(|_| None)
@@ -487,31 +599,45 @@ impl Engine {
         file: Arc<File>,
         options: &RunOptions,
         metrics: &mut crate::performance::Metrics,
+        saved: &mut Option<RangeSession>,
     ) -> Result<Option<String>> {
         let phase = Instant::now();
         let total = job.total.context("missing_range_length")?;
         let completed = self.store.extents(&job.id, job.generation)?;
-        let mut valid = HashSet::new();
-        for extent in completed {
-            let expected_length = BLOCK.min(total.saturating_sub(extent.offset));
-            let sound = extent.offset.is_multiple_of(BLOCK)
-                && extent.length == expected_length
-                && extent.length > 0
-                && platform::hash_extent(&file, extent.offset, extent.length)
-                    .is_ok_and(|hash| hash == extent.digest);
-            if sound {
-                valid.insert(extent.offset);
-            } else {
-                self.store.forget_extent(&job.id, extent.offset)?;
+        let cached = saved.take().filter(|s| {
+            s.matches(job)
+                && completed.len() == s.valid.len()
+                && completed.iter().all(|e| s.valid.get(&e.offset) == Some(e))
+        });
+        let (mut valid, verifier) = if let Some(session) = cached {
+            metrics.validation_reuses += 1;
+            metrics.validation_reused_bytes += completed.iter().map(|e| e.length).sum::<u64>();
+            (session.valid, session.verifier)
+        } else {
+            let mut valid = HashMap::new();
+            for extent in completed {
+                metrics.resume_validated_bytes += extent.length;
+                let expected_length = BLOCK.min(total.saturating_sub(extent.offset));
+                let sound = extent.offset.is_multiple_of(BLOCK)
+                    && extent.length == expected_length
+                    && extent.length > 0
+                    && platform::hash_extent(&file, extent.offset, extent.length)
+                        .is_ok_and(|hash| hash == extent.digest);
+                if sound {
+                    valid.insert(extent.offset, extent);
+                } else {
+                    self.store.forget_extent(&job.id, extent.offset)?;
+                }
             }
-        }
-        file.set_len(total)?;
+            file.set_len(total)?;
+            let reader = File::open(&job.staging)?;
+            if platform::file_id(&reader)? != platform::file_id(&file)? {
+                bail!("staging_identity_mismatch");
+            }
+            let verifier = crate::verification::Verifier::new(reader);
+            (valid, verifier)
+        };
         metrics.resume_validation_ms += crate::performance::milliseconds(phase);
-        let reader = File::open(&job.staging)?;
-        if platform::file_id(&reader)? != platform::file_id(&file)? {
-            bail!("staging_identity_mismatch");
-        }
-        let verifier = crate::verification::Verifier::new(reader);
         let mut storage = crate::storage::Pipeline::new(
             &self.store,
             &job.id,
@@ -521,7 +647,7 @@ impl Engine {
             total,
         )?;
         let mut prefix = 0;
-        while prefix < total && valid.contains(&prefix) {
+        while prefix < total && valid.contains_key(&prefix) {
             prefix += BLOCK.min(total - prefix);
         }
         verifier.advance(prefix);
@@ -541,21 +667,22 @@ impl Engine {
         } else {
             options.connections
         };
+        let mut token = 0usize;
+        let source = job
+            .resolved_url
+            .as_deref()
+            .context("missing_resolved_url")?;
+        let connections = self.store.paced_connections(source, connections)?;
         let speed = if options.speed_limit_bytes > 0 {
             options.speed_limit_bytes / connections as u64
         } else {
             0
         };
-        let mut token = 0usize;
         let mut adaptive = (options.adaptive && options.speed_limit_bytes == 0)
             .then(|| crate::adaptive::Controller::new(connections));
         let mut concurrency = adaptive.as_ref().map_or(connections, |t| t.limit());
         let mut sample_time = Instant::now();
         let mut sample_bytes = durable;
-        let source = job
-            .resolved_url
-            .as_deref()
-            .context("missing_resolved_url")?;
         let mut admission_at = Instant::now() + self.store.admission_wait(source)?;
         let outcome = (|| -> Result<()> {
             while cursor < total || !pending.is_empty() || !active.is_empty() || !ending.is_empty()
@@ -586,7 +713,7 @@ impl Engine {
                     } else if !pending.is_empty() {
                         break;
                     } else {
-                        while cursor < total && valid.contains(&cursor) {
+                        while cursor < total && valid.contains_key(&cursor) {
                             cursor += BLOCK.min(total - cursor);
                         }
                         if cursor == total {
@@ -596,7 +723,7 @@ impl Engine {
                         let mut length = BLOCK.min(total - cursor);
                         while length < span
                             && cursor + length < total
-                            && !valid.contains(&(cursor + length))
+                            && !valid.contains_key(&(cursor + length))
                         {
                             length += BLOCK.min(total - cursor - length);
                         }
@@ -662,11 +789,11 @@ impl Engine {
                     task.accounted = handle.get_ref().block_bytes;
                 }
                 for event in storage.events() {
-                    let crate::storage::Event::Written { offset, length } = event;
-                    written += length;
-                    valid.insert(offset);
+                    let crate::storage::Event::Written(extent) = event;
+                    written += extent.length;
+                    valid.insert(extent.offset, extent);
                 }
-                while prefix < total && valid.contains(&prefix) {
+                while prefix < total && valid.contains_key(&prefix) {
                     prefix += BLOCK.min(total - prefix);
                 }
                 verifier.advance(prefix);
@@ -815,14 +942,30 @@ impl Engine {
         metrics.checkpoint_batches += stats.batches;
         metrics.checkpoint_blocks += stats.blocks;
         for event in storage.events() {
-            let crate::storage::Event::Written { offset, length } = event;
-            written += length;
-            valid.insert(offset);
+            let crate::storage::Event::Written(extent) = event;
+            written += extent.length;
+            valid.insert(extent.offset, extent);
         }
-        while prefix < total && valid.contains(&prefix) {
+        while prefix < total && valid.contains_key(&prefix) {
             prefix += BLOCK.min(total - prefix);
         }
         verifier.advance(prefix);
+        if outcome
+            .as_ref()
+            .is_err_and(|e| e.downcast_ref::<transport::Throttled>().is_some())
+            || self.should_stop(&job.id, options)?
+        {
+            if cfg!(windows) && self.store.requested(&job.id)? == "run" {
+                *saved = Some(RangeSession {
+                    file,
+                    job: job.clone(),
+                    valid,
+                    verifier,
+                });
+            }
+            outcome?;
+            return Ok(None);
+        }
         outcome?;
         if self.should_stop(&job.id, options)? {
             return Ok(None);
@@ -1023,7 +1166,10 @@ fn request_span(total: u64, cursor: u64, connections: usize, override_mib: Optio
     }
     // Shrink toward the tail so a slow final lease cannot monopolize the work.
     let blocks = (total - cursor).div_ceil(BLOCK);
-    (blocks.div_ceil((connections * 2) as u64)).clamp(4, 16) * BLOCK
+    // Large network leases do not change the one-MiB crash recovery blocks or
+    // bounded writer buffers. Fewer requests also reduce per-origin throttling.
+    let maximum = if total >= 512 * BLOCK { 128 } else { 16 };
+    (blocks.div_ceil((connections * 2) as u64)).clamp(4, maximum) * BLOCK
 }
 
 fn transport_retry_delay(attempt: u32) -> Duration {
@@ -1050,7 +1196,7 @@ mod tests {
     #[test]
     fn request_spans_shrink_at_tail_and_preserve_small_file_behavior() {
         assert_eq!(request_span(3 * BLOCK, 0, 4, None), BLOCK);
-        assert_eq!(request_span(1024 * BLOCK, 0, 4, None), 16 * BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 0, 4, None), 128 * BLOCK);
         assert_eq!(request_span(1024 * BLOCK, 1023 * BLOCK, 4, None), 4 * BLOCK);
         assert_eq!(request_span(1024 * BLOCK, 0, 4, Some(8)), 8 * BLOCK);
     }

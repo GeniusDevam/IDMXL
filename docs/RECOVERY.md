@@ -35,8 +35,11 @@ precedence. Automatic attempts never use the explicit **Retry now** override.
 
 Throttling has its own persisted time budget. It does not exhaust the small
 per-block budget used for interrupted transport requests. Newly saved progress
-starts a new recovery episode. Resource identity and saved block hashes are
-checked again before reuse; a cooldown does not weaken validation.
+starts a new recovery episode. Remote identity is checked before reuse. A
+continuously owned Windows session can retain its validated blocks and running
+whole-file hash across a cooldown; its staging handle denies external writes
+and deletion, and its saved extent records must still match. A new process or
+an invalidated session rechecks saved block hashes in full.
 
 Server cooldowns are shared by jobs on the same origin. Waiting releases the
 engine lock, allowing an eligible job on another origin to proceed. Media
@@ -46,12 +49,18 @@ kept and hidden component jobs are not scheduled independently.
 ## Request pacing
 
 New body requests normally have a 50 ms minimum spacing per origin. A throttling
-response raises spacing to at least one second, increasing for repeated
-rejections without progress. Eight successful requests allow a gradual reduction
-toward the normal interval. Connection limits remain separate from request rate.
+response raises spacing to at least one second; further rejections double the
+learned interval, up to 30 seconds, even when some progress continues. This
+origin learning survives process restart and is separate from the job's
+no-progress recovery allowance. After 64 successful responses and at least two
+minutes beyond the last cooldown, the interval can decrease by one eighth.
+Repeated throttling also lowers the concurrency ceiling to two at a four-second
+interval and one at eight seconds. Successful recovery gradually restores the
+configured ceiling. A media parent does not count its child's rejection twice.
 
-For files of at least 32 MiB, automatically sized body requests shrink from up to
-16 MiB to a 4 MiB minimum near completion, with a shorter final remainder.
+For files from 32 MiB to less than 512 MiB, automatically sized body requests
+shrink from up to 16 MiB to a 4 MiB minimum near completion. Files at least
+512 MiB use requests up to 128 MiB. The final remainder can be shorter.
 Smaller files retain 1 MiB requests. Recovery checkpoints stay at 1 MiB, and the
 experimental CLI request-size override remains available for controlled tests.
 

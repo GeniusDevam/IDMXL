@@ -51,7 +51,7 @@ enum Command {
     Finish,
 }
 pub(crate) enum Event {
-    Written { offset: u64, length: u64 },
+    Written(Extent),
 }
 
 #[derive(Default)]
@@ -348,13 +348,14 @@ fn run(
                             lease.received % RECOVERY_BLOCK
                         };
                         let offset = start + lease.received - length;
-                        pending.push(Extent {
+                        let extent = Extent {
                             offset,
                             length,
                             digest: format!("{:x}", lease.hash.finalize_reset()),
-                        });
+                        };
+                        pending.push(extent.clone());
                         pending_bytes += length;
-                        let _ = events.send(Event::Written { offset, length });
+                        let _ = events.send(Event::Written(extent));
                     }
                 }
             }

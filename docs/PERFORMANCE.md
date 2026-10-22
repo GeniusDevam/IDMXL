@@ -11,8 +11,10 @@ Measured results and preview qualification are recorded in
 ## Transfer pipeline
 
 - Recovery extents remain **1 MiB**, preserving existing saved downloads.
-- For files at least 32 MiB, HTTP requests group extents into **4–16 MiB leases**
-  with a shorter final remainder.
+- For files from 32 MiB to less than 512 MiB, HTTP requests group extents into
+  **4–16 MiB leases**. Files at least 512 MiB use **4–128 MiB leases**, reducing
+  request overhead and exposure to request-rate limits. The final remainder can
+  be shorter. Recovery blocks and memory limits do not grow with these leases.
   The scheduler shrinks leases as the remaining work decreases and never spans
   an already verified saved extent. Smaller files retain 1 MiB requests.
 - Receive callbacks enqueue validated bytes in a **16 MiB bounded queue**. A
@@ -46,7 +48,17 @@ Measured results and preview qualification are recorded in
   digest comparison and publication-intent transaction.
 - On Windows, the active staging writer permits other readers but excludes
   external writers/deletion. The verifier checks file identity before starting.
-  It owns its read cursor and joins on success, pause and error.
+  It owns its read cursor. Across server cooldowns and scheduler handoffs, the
+  same process can retain that handle, validated extents and incremental SHA-256
+  worker. Reuse requires matching remote identity, generation, path, file length
+  and every persisted extent. A per-job lease prevents competing workers from
+  claiming this retained state while another job uses the profile engine lock.
+  The cache holds at most eight jobs; eviction releases ownership and requires
+  normal validation next time. User pause/cancel, failure and worker exit release
+  it. Other platforms continue to validate saved blocks on every resume.
+- A single eligible queued download keeps running past the scheduling quantum.
+  Another eligible job can still receive its turn, and queue windows and user
+  controls still stop the current transfer promptly.
 - Available request slots are refilled immediately. Idle retry waits remain
   bounded. Server rejections enter persistent automatic recovery with shared
   origin cooldowns and request pacing; see [RECOVERY.md](RECOVERY.md).
@@ -54,7 +66,8 @@ Measured results and preview qualification are recorded in
 Larger checkpoint batches trade fewer storage barriers for more refetching
 after an abrupt exit. A process exit can lose recent uncommitted progress; saved extents are
 never advertised as durable before their data flush. Saved blocks are hashed
-again on resume. Hardware power-loss behavior remains a separate qualification.
+again after process restart or loss of the exclusive validated session.
+Hardware power-loss behavior remains a separate qualification.
 
 ## Connection policy
 

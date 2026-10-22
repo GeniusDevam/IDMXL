@@ -136,7 +136,7 @@ impl From<Job> for JobView {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Extent {
     pub offset: u64,
     pub length: u64,

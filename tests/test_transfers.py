@@ -906,6 +906,21 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(order[:3],[first["id"],second["id"],first["id"]])
         with Fixture.guard:self.assertEqual(Fixture.counters[("/slow","bytes=0-1048575")]-before,1)
 
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Use the test-only short scheduling quantum")
+    def test_single_queue_download_keeps_its_connections_past_quantum(self):
+        job=self.add("/slow",name="single-queue.bin")
+        self.command("policy",job["id"],input=json.dumps({"connections":1}))
+        db=sqlite3.connect(self.state/"jobs.db")
+        db.executescript("CREATE TABLE audit(id TEXT); CREATE TRIGGER starts AFTER UPDATE OF state ON jobs WHEN new.state='downloading' AND old.state!='downloading' BEGIN INSERT INTO audit VALUES(new.id); END;")
+        db.close()
+        result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"queue-run"],env=dict(os.environ,IDMXL_TEST_QUANTUM_MS="500"),capture_output=True,text=True,timeout=35)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.command("show",job["id"])["state"],"completed")
+        db=sqlite3.connect(self.state/"jobs.db")
+        count=db.execute("SELECT COUNT(*) FROM audit").fetchone()[0];db.close()
+        self.assertEqual(count,1,"no competing job should mean no periodic restart")
+        self.assertEqual(hashlib.sha256(Path(job["destination"]).read_bytes()).hexdigest(),DIGEST)
+
     @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
     def test_failed_retry_budget_survives_repeated_process_loss(self):
         self.server.retry_healthy = False

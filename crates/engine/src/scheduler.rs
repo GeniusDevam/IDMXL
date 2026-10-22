@@ -33,6 +33,7 @@ pub fn drain_notifying(
     ready()?;
     while !stop.load(Ordering::Relaxed) && engine.store.queue_running()? {
         engine.store.expire_recoveries()?;
+        engine.prune_sessions();
         let Some(id) = engine.store.next_queued()? else {
             if !watch {
                 break;
@@ -81,7 +82,8 @@ pub fn drain_notifying(
                     && store
                         .get(&watch_id)
                         .is_ok_and(|j| j.mode == "ranged" && j.durable > baseline)
-                    && (started.elapsed() >= quantum
+                    && ((started.elapsed() >= quantum
+                        && store.next_queued().is_ok_and(|next| next.is_some()))
                         || !store.queue_open(&queue_name).unwrap_or(false))
                 {
                     signal.store(true, Ordering::Relaxed);
@@ -125,5 +127,6 @@ pub fn drain_notifying(
             return result.map(|_| ());
         }
     }
+    engine.release_sessions();
     Ok(())
 }

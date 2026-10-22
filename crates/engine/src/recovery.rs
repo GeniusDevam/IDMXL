@@ -77,11 +77,32 @@ impl Store {
         // A successful partial response remains useful. Throttling is governed by
         // a persisted time budget, independently of transport/corruption budgets.
         tx.execute("UPDATE jobs SET state='waiting',error=NULL,speed=0,eta=NULL,received=durable WHERE id=?1 AND requested='run'",[id])?;
-        for url in [&job.url, &event.url] {
-            let origin = platform::checked_url(url)?.origin().ascii_serialization();
+        let mut origins = [&job.url, &event.url]
+            .into_iter()
+            .map(|url| Ok(platform::checked_url(url)?.origin().ascii_serialization()))
+            .collect::<Result<Vec<_>>>()?;
+        origins.sort();
+        origins.dedup();
+        let media_parent = self.is_media(id)?;
+        for origin in origins {
             tx.execute("INSERT INTO origin_cooldowns VALUES(?1,?2) ON CONFLICT(origin) DO UPDATE SET until_ms=MAX(until_ms,excluded.until_ms)",params![origin,deadline])?;
-            let interval = (1000i64 << attempt.saturating_sub(1).min(5)).min(30000);
-            tx.execute("INSERT INTO origin_pacing VALUES(?1,?2,?3,0) ON CONFLICT(origin) DO UPDATE SET next_ms=MAX(next_ms,excluded.next_ms),interval_ms=MAX(interval_ms,excluded.interval_ms),successes=0",params![origin,at.saturating_add(interval),interval])?;
+            // A parent propagates a component's cooldown; it did not make a
+            // second failed request, so must not train pacing twice.
+            if media_parent {
+                continue;
+            }
+            // Origin learning is independent of the job's no-progress budget:
+            // making some progress must not erase a series of rejections.
+            let previous: i64 = tx
+                .query_row(
+                    "SELECT interval_ms FROM origin_pacing WHERE origin=?1",
+                    [&origin],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or(NORMAL_INTERVAL_MS);
+            let interval = previous.saturating_mul(2).clamp(1000, 30000);
+            tx.execute("INSERT INTO origin_pacing VALUES(?1,?2,?3,0) ON CONFLICT(origin) DO UPDATE SET next_ms=MAX(next_ms,excluded.next_ms),interval_ms=excluded.interval_ms,successes=0",params![origin,at.saturating_add(interval),interval])?;
         }
         tx.commit()?;
         Ok((deadline, attempt))
@@ -122,6 +143,26 @@ impl Store {
     pub(crate) fn successful_request(&self, url: &str) -> Result<()> {
         let origin = platform::checked_url(url)?.origin().ascii_serialization();
         self.progress_execute_pacing(&origin)
+    }
+
+    pub(crate) fn paced_connections(&self, url: &str, ceiling: usize) -> Result<usize> {
+        let origin = platform::checked_url(url)?.origin().ascii_serialization();
+        let interval: i64 = self
+            .db
+            .query_row(
+                "SELECT interval_ms FROM origin_pacing WHERE origin=?1",
+                [origin],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(NORMAL_INTERVAL_MS);
+        Ok(ceiling.min(if interval >= 8000 {
+            1
+        } else if interval >= 4000 {
+            2
+        } else {
+            ceiling
+        }))
     }
 }
 
@@ -267,13 +308,55 @@ mod tests {
         assert_eq!(s.admit_request(source).unwrap(), Duration::from_millis(50));
         s.schedule_recovery(&j.id, &throttle(), Duration::from_secs(86400))
             .unwrap();
-        for _ in 0..8 {
+        for _ in 0..64 {
             s.successful_request(source).unwrap();
         }
         let interval: i64 =
             s.db.query_row("SELECT interval_ms FROM origin_pacing", [], |r| r.get(0))
                 .unwrap();
-        assert_eq!(interval, 500);
+        assert_eq!(
+            interval, 1000,
+            "recent throttling survives successful bursts"
+        );
+        s.db.execute("UPDATE origin_cooldowns SET until_ms=?1", [now() - 120001])
+            .unwrap();
+        s.successful_request(source).unwrap();
+        let interval: i64 =
+            s.db.query_row("SELECT interval_ms FROM origin_pacing", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(interval, 875, "recovery is gradual after a quiet period");
+    }
+    #[test]
+    fn origin_learning_survives_progress_and_process_reopen() {
+        let (root, s, j) = fixture();
+        for i in 1..=4 {
+            s.db.execute(
+                "UPDATE jobs SET durable=?1 WHERE id=?2",
+                params![i * 1048576, &j.id],
+            )
+            .unwrap();
+            s.schedule_recovery(&j.id, &throttle(), Duration::from_secs(86400))
+                .unwrap();
+            assert_eq!(s.recovery_info(&j.id).unwrap().unwrap().1, 1);
+            for _ in 0..8 {
+                s.successful_request("https://example.org/file").unwrap();
+            }
+        }
+        drop(s);
+        let s = Store::open(root.path()).unwrap();
+        let interval: i64 =
+            s.db.query_row("SELECT interval_ms FROM origin_pacing", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(interval, 8000);
+        assert_eq!(
+            s.paced_connections("https://example.org/file", 4).unwrap(),
+            1
+        );
+        assert_eq!(
+            s.paced_connections("https://another.example/file", 4)
+                .unwrap(),
+            4
+        );
     }
     #[test]
     fn automatic_start_never_overrides_a_concurrent_pause_or_cancel() {

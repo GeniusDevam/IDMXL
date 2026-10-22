@@ -732,7 +732,9 @@ impl Store {
         Ok(())
     }
     pub(crate) fn progress_execute_pacing(&self, origin: &str) -> Result<()> {
-        self.progress_db.execute("UPDATE origin_pacing SET interval_ms=CASE WHEN successes>=7 THEN MAX(50,interval_ms/2) ELSE interval_ms END,successes=CASE WHEN successes>=7 THEN 0 ELSE successes+1 END WHERE origin=?1",[origin])?;
+        // Keep recent throttling memory through short successful bursts. Relax
+        // by only 1/8 after 64 successes and at least two rejection-free minutes.
+        self.progress_db.execute("UPDATE origin_pacing SET interval_ms=CASE WHEN successes>=63 AND COALESCE((SELECT until_ms FROM origin_cooldowns WHERE origin=?1),0)+120000<=?2 THEN MAX(50,interval_ms-interval_ms/8) ELSE interval_ms END,successes=CASE WHEN successes>=63 AND COALESCE((SELECT until_ms FROM origin_cooldowns WHERE origin=?1),0)+120000<=?2 THEN 0 ELSE MIN(64,successes+1) END WHERE origin=?1",params![origin,now()])?;
         Ok(())
     }
 }
