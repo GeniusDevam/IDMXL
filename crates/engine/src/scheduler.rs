@@ -32,6 +32,7 @@ pub fn drain_notifying(
     engine.reconcile()?;
     ready()?;
     while !stop.load(Ordering::Relaxed) && engine.store.queue_running()? {
+        engine.store.expire_recoveries()?;
         let Some(id) = engine.store.next_queued()? else {
             if !watch {
                 break;
@@ -96,6 +97,8 @@ pub fn drain_notifying(
                 retries: policy.retries as u32,
                 speed_limit_bytes: speed,
                 adaptive: policy.adaptive,
+                recovery_timeout: Duration::from_secs(policy.recovery_timeout_seconds as u64),
+                wait_for_recovery: false,
                 stop: job_stop,
                 ..Default::default()
             },

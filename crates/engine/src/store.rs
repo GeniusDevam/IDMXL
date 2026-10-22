@@ -20,6 +20,7 @@ pub struct Store {
     pub directory: PathBuf,
     _maintenance: std::fs::File,
 }
+pub const SCHEMA_VERSION: u32 = 7;
 
 impl Store {
     /// Acquire writer ownership before reading a value that this transaction
@@ -60,10 +61,10 @@ impl Store {
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
         let version: u32 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > 6 {
+        if version > SCHEMA_VERSION {
             bail!("database_version_unsupported");
         }
-        let idle_locks = if version > 0 && version < 6 {
+        let idle_locks = if version > 0 && version < 7 {
             let mut locks = Vec::new();
             for name in ["engine.lock", "scheduler.lock"] {
                 let lock = std::fs::OpenOptions::new()
@@ -151,6 +152,23 @@ impl Store {
                 )?;
             }
             db.execute_batch(include_str!("../migrations/006_everyday.sql"))?;
+        }
+        if version < 7 {
+            if version == 6 {
+                let backup = directory.join(format!("jobs-v6-{}.sqlite", Uuid::new_v4()));
+                db.execute(
+                    "VACUUM INTO ?1",
+                    [backup.to_str().context("non_unicode_path")?],
+                )?;
+            }
+            // Keep additive recovery migration idempotent for restored profiles.
+            let has_column: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('policies') WHERE name='recovery_timeout_seconds')",[],|r|r.get(0))?;
+            let sql = include_str!("../migrations/007_recovery.sql");
+            if has_column {
+                db.execute_batch(&sql.replace("ALTER TABLE policies ADD COLUMN recovery_timeout_seconds INTEGER NOT NULL DEFAULT 86400;", ""))?;
+            } else {
+                db.execute_batch(sql)?;
+            }
         }
         drop(idle_locks);
         let progress_db = Connection::open(directory.join("jobs.db"))?;
@@ -341,7 +359,9 @@ impl Store {
         let retry_not_before = if self.setting_bool(&format!("retry_override:{id}"), false)? {
             None
         } else {
-            self.retry_deadline(&source)?
+            let origin = self.retry_deadline(&source)?;
+            let recovery = self.recovery_info(id)?.map(|r| r.0).filter(|n| *n > now());
+            origin.into_iter().chain(recovery).max()
         };
         Ok(Job {
             id: data.0,
@@ -384,6 +404,10 @@ impl Store {
         }
         view.queue_window_open = self.queue_open(&view.policy.queue_name)?;
         (view.transfer_requests, view.failed_requests) = self.request_counts(id)?;
+        if let Some((_, attempt, status)) = self.recovery_info(id)? {
+            view.last_http_status = Some(status);
+            view.recovery_attempts = attempt;
+        }
         Ok(view)
     }
     pub fn list(&self) -> Result<Vec<JobView>> {
@@ -423,12 +447,11 @@ impl Store {
         )?;
         Ok(())
     }
-    pub(crate) fn begin(&self, id: &str) -> Result<()> {
-        self.db.execute(
-            "UPDATE jobs SET state='downloading',requested='run',error=NULL,received=durable,speed=0,eta=NULL,last_started=?2 WHERE id=?1",
-            params![id,now()],
-        )?;
-        Ok(())
+    pub(crate) fn begin(&self, id: &str, state: &str, requested: &str) -> Result<bool> {
+        Ok(self.db.execute(
+            "UPDATE jobs SET state='downloading',requested='run',error=NULL,received=durable,speed=0,eta=NULL,last_started=?2 WHERE id=?1 AND state=?3 AND requested=?4",
+            params![id,now(),state,requested],
+        )? > 0)
     }
     pub(crate) fn requested(&self, id: &str) -> Result<String> {
         Ok(self
@@ -582,9 +605,14 @@ impl Store {
 
     pub fn policy(&self, id: &str) -> Result<JobPolicy> {
         let mut policy = self.db.query_row("SELECT queue_name,priority,not_before,deadline,connections,retries,speed_limit FROM policies WHERE job_id=?1", [id], |r| Ok(JobPolicy {
-            queue_name:r.get(0)?,priority:r.get(1)?,not_before:r.get(2)?,deadline:r.get(3)?,connections:r.get(4)?,retries:r.get(5)?,speed_limit:r.get(6)?,adaptive:false
+            queue_name:r.get(0)?,priority:r.get(1)?,not_before:r.get(2)?,deadline:r.get(3)?,connections:r.get(4)?,retries:r.get(5)?,speed_limit:r.get(6)?,adaptive:false,recovery_timeout_seconds:86400
         }))?;
         policy.adaptive = self.setting_bool(&format!("adaptive:{id}"), false)?;
+        policy.recovery_timeout_seconds = self.db.query_row(
+            "SELECT recovery_timeout_seconds FROM policies WHERE job_id=?1",
+            [id],
+            |r| r.get(0),
+        )?;
         Ok(policy)
     }
 
@@ -595,6 +623,7 @@ impl Store {
             || !(-1000..=1000).contains(&policy.priority)
             || !(1..=8).contains(&policy.connections)
             || policy.retries > 5
+            || !(1..=604800).contains(&policy.recovery_timeout_seconds)
             || policy.not_before < 0
             || policy.deadline.is_some_and(|n| n <= policy.not_before)
             || policy.speed_limit > i64::MAX as u64
@@ -606,6 +635,10 @@ impl Store {
         transaction.execute("UPDATE policies SET queue_name=?1,priority=?2,not_before=?3,deadline=?4,connections=?5,retries=?6,speed_limit=?7 WHERE job_id=?8",
             params![policy.queue_name.trim(),policy.priority,policy.not_before,policy.deadline,policy.connections,policy.retries,policy.speed_limit,id])?;
         transaction.execute("INSERT INTO settings VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("adaptive:{id}"),policy.adaptive.to_string()])?;
+        transaction.execute(
+            "UPDATE policies SET recovery_timeout_seconds=?2 WHERE job_id=?1",
+            params![id, policy.recovery_timeout_seconds],
+        )?;
         transaction.commit()?;
         self.view(id)
     }
@@ -645,7 +678,23 @@ impl Store {
         Ok(())
     }
     pub(crate) fn next_queued(&self) -> Result<Option<String>> {
-        let mut statement = self.db.prepare("SELECT j.id,p.queue_name,j.state FROM jobs j JOIN policies p ON p.job_id=j.id JOIN job_origins o ON o.job_id=j.id LEFT JOIN origin_cooldowns c ON c.origin=o.origin WHERE j.state IN ('queued','publishing') AND p.not_before<=?1 AND (p.deadline IS NULL OR p.deadline>?1) AND (c.until_ms IS NULL OR c.until_ms<=?1) ORDER BY (SELECT MAX(j2.last_started) FROM jobs j2 JOIN policies p2 ON p2.job_id=j2.id WHERE p2.queue_name=p.queue_name),p.priority DESC,j.last_started,j.created,j.rowid")?;
+        let mut statement = self.db.prepare(
+            r#"
+            SELECT j.id,p.queue_name,j.state FROM jobs j
+            JOIN policies p ON p.job_id=j.id JOIN job_origins o ON o.job_id=j.id
+            LEFT JOIN origin_cooldowns c ON c.origin=o.origin
+            LEFT JOIN recovery_jobs r ON r.job_id=j.id
+            WHERE j.state IN ('queued','waiting','publishing')
+              AND j.id NOT IN (SELECT job_id FROM media_components)
+              AND j.requested NOT IN ('paused','canceled')
+              AND p.not_before<=?1 AND (p.deadline IS NULL OR p.deadline>?1)
+              AND (c.until_ms IS NULL OR c.until_ms<=?1)
+              AND (r.next_ms IS NULL OR r.next_ms<=?1 OR j.state!='waiting')
+            ORDER BY (SELECT MAX(j2.last_started) FROM jobs j2
+                      JOIN policies p2 ON p2.job_id=j2.id WHERE p2.queue_name=p.queue_name),
+                     p.priority DESC,j.last_started,j.created,j.rowid
+        "#,
+        )?;
         let candidates = statement.query_map([now()], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -680,6 +729,10 @@ impl Store {
     pub(crate) fn defer_origin(&self, url: &str, delay: std::time::Duration) -> Result<()> {
         let deadline = now().saturating_add(delay.as_millis().min(i64::MAX as u128) as i64);
         self.db.execute("INSERT INTO origin_cooldowns VALUES (?1,?2) ON CONFLICT(origin) DO UPDATE SET until_ms=MAX(until_ms,excluded.until_ms)",params![platform::checked_url(url)?.origin().ascii_serialization(),deadline])?;
+        Ok(())
+    }
+    pub(crate) fn progress_execute_pacing(&self, origin: &str) -> Result<()> {
+        self.progress_db.execute("UPDATE origin_pacing SET interval_ms=CASE WHEN successes>=7 THEN MAX(50,interval_ms/2) ELSE interval_ms END,successes=CASE WHEN successes>=7 THEN 0 ELSE successes+1 END WHERE origin=?1",[origin])?;
         Ok(())
     }
 }
@@ -809,7 +862,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            6
+            7
         );
         let path = std::fs::read_dir(root.path())
             .unwrap()
@@ -863,7 +916,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            6
+            7
         );
         let backup = std::fs::read_dir(root.path())
             .unwrap()

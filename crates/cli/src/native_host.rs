@@ -181,7 +181,7 @@ pub fn serve(origin: &str) -> Result<()> {
                     bail!("invalid_message");
                 }
                 let jobs:Vec<_>=store.desktop_jobs()?.into_iter().filter(|j|!["completed","canceled"].contains(&j.state.as_str())).take(100).map(|j|
-                    serde_json::json!({"id":j.id,"name":j.name,"state":j.state,"mode":j.mode,"received_bytes":j.received_bytes,"total_bytes":j.total_bytes,"speed_bytes_per_second":j.speed_bytes_per_second,"can_resume":j.mode!="browser"||j.replayable})).collect();
+                    serde_json::json!({"id":j.id,"name":j.name,"state":j.state,"mode":j.mode,"received_bytes":j.received_bytes,"total_bytes":j.total_bytes,"speed_bytes_per_second":j.speed_bytes_per_second,"can_resume":j.mode!="browser"||j.replayable,"retry_not_before":j.retry_not_before,"last_http_status":j.last_http_status,"recovery_attempts":j.recovery_attempts})).collect();
                 return Ok(
                     serde_json::json!({"version":5,"accepted":true,"request_id":id.to_string(),"jobs":jobs}),
                 );

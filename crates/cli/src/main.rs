@@ -47,6 +47,8 @@ enum Command {
         connections: u8,
         #[arg(long,default_value_t=2,value_parser=clap::value_parser!(u8).range(0..=5))]
         retries: u8,
+        #[arg(long,default_value_t=86400,value_parser=clap::value_parser!(u32).range(1..=604800),help="Maximum automatic recovery time without saved progress, in seconds")]
+        recovery_timeout_seconds: u32,
         #[arg(
             long,
             default_value_t = 0,
@@ -179,6 +181,7 @@ fn run() -> Result<()> {
             id,
             connections,
             retries,
+            recovery_timeout_seconds,
             speed_limit,
             adaptive,
             metrics,
@@ -193,6 +196,10 @@ fn run() -> Result<()> {
                 RunOptions {
                     connections: connections as usize,
                     retries: retries as u32,
+                    recovery_timeout: std::time::Duration::from_secs(
+                        recovery_timeout_seconds as u64,
+                    ),
+                    wait_for_recovery: true,
                     speed_limit_bytes: speed_limit,
                     adaptive,
                     metrics,

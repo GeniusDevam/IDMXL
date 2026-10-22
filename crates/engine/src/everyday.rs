@@ -43,11 +43,23 @@ impl Store {
     pub fn reset_retry_budget(&self, id: &str) -> Result<()> {
         self.get(id)?;
         self.db.execute("UPDATE request_attempts SET budget_failures=0 WHERE job_id=?1 OR job_id IN(SELECT job_id FROM media_components WHERE parent_id=?1)",[id])?;
+        self.clear_recovery(id)?;
         Ok(())
     }
     pub(crate) fn request_counts(&self, id: &str) -> Result<(String, String)> {
         let (started,failed):(u64,u64)=self.db.query_row("SELECT COALESCE(SUM(started),0),COALESCE(SUM(total_failures),0) FROM request_attempts WHERE job_id=?1 OR job_id IN(SELECT job_id FROM media_components WHERE parent_id=?1)",[id],|r|Ok((r.get(0)?,r.get(1)?)))?;
         Ok((started.to_string(), failed.to_string()))
+    }
+    pub(crate) fn record_throttle(
+        &self,
+        id: &str,
+        generation: u64,
+        offset: u64,
+        length: u64,
+    ) -> Result<()> {
+        let first = length.min(crate::transport::RECOVERY_BLOCK);
+        self.db.execute("INSERT INTO request_attempts(job_id,generation,offset,length,total_failures) VALUES(?1,?2,?3,?4,1) ON CONFLICT(job_id,generation,offset,length) DO UPDATE SET total_failures=total_failures+1",params![id,generation,offset,first])?;
+        Ok(())
     }
     pub(crate) fn start_request(
         &self,

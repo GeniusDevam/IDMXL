@@ -11,7 +11,8 @@ Measured results and preview qualification are recorded in
 ## Transfer pipeline
 
 - Recovery extents remain **1 MiB**, preserving existing saved downloads.
-- For files at least 32 MiB, HTTP requests group extents into **1–16 MiB leases**.
+- For files at least 32 MiB, HTTP requests group extents into **4–16 MiB leases**
+  with a shorter final remainder.
   The scheduler shrinks leases as the remaining work decreases and never spans
   an already verified saved extent. Smaller files retain 1 MiB requests.
 - Receive callbacks enqueue validated bytes in a **16 MiB bounded queue**. A
@@ -47,7 +48,8 @@ Measured results and preview qualification are recorded in
   external writers/deletion. The verifier checks file identity before starting.
   It owns its read cursor and joins on success, pause and error.
 - Available request slots are refilled immediately. Idle retry waits remain
-  bounded, and active requests still respect persistent origin Retry-After.
+  bounded. Server rejections enter persistent automatic recovery with shared
+  origin cooldowns and request pacing; see [RECOVERY.md](RECOVERY.md).
 
 Larger checkpoint batches trade fewer storage barriers for more refetching
 after an abrupt exit. A process exit can lose recent uncommitted progress; saved extents are
@@ -63,7 +65,8 @@ four. Actual TCP connection count can differ under HTTP/2 multiplexing.
 Automatic admission evaluates pairs of one-second goodput samples. Successful
 trials explore 1 → 2 → 4 → 8, bounded by the selected ceiling. A trial needs at
 least 10% improvement; unsuccessful trials return to the preceding limit with
-a cooldown. Active leases drain normally. Throttling reduces admission to one.
+a cooldown. Active leases drain normally. Server throttling preserves saved
+blocks, waits for the server deadline and resumes with slower request pacing.
 Rate-capped jobs retain fixed admission and divide the cap among active slots.
 
 HTTP/3, persistent learned origin/network profiles, cross-origin mirror

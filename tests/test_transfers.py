@@ -40,12 +40,6 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         with self.guard:
             self.counters[(path, byte_range)] += 1
             attempt = self.counters[(path, byte_range)]
-        if path == "/retry-crash" and byte_range not in ("", "bytes=0-0") and not getattr(self.server, "retry_healthy", False):
-            self.send_response(429)
-            self.send_header("Retry-After", "0")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
         if path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "/file")
@@ -98,6 +92,8 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             return
         if path == "/truncate" and byte_range != "bytes=0-0" and attempt == 1:
             body = body[:len(body) // 2]
+        if path == "/retry-crash" and byte_range not in ("", "bytes=0-0") and not getattr(self.server,"retry_healthy",False):
+            body=body[:len(body)//2]
         try:
             for i in range(0, len(body), 32768):
                 self.wfile.write(body[i:i + 32768])
@@ -735,14 +731,23 @@ class TransferTests(unittest.TestCase):
                 # Distinct state profiles keep the first origin cooldown out of the second case.
                 self.state=self.directory / path.removeprefix("/")
                 job=self.add(path,name=path.removeprefix("/")+".bin")
-                result=self.command("run",job["id"],success=False)
-                self.assertIn("server_throttled",result.stderr)
-                view=self.command("show",job["id"])
+                process=self.start(job)
+                deadline=time.monotonic()+10
+                while True:
+                    view=self.command("show",job["id"])
+                    if view["state"]=="waiting":break
+                    self.assertIsNone(process.poll())
+                    self.assertLess(time.monotonic(),deadline)
+                    time.sleep(.05)
                 self.assertGreater(int(view["retry_not_before"]),int(time.time()*1000)+3500000)
                 second=self.add(name=path.removeprefix("/")+"-other.bin")
                 self.assertIn("server_retry_pending",self.command("run",second["id"],success=False).stderr)
                 self.command("queue-run")
                 self.assertEqual(self.command("show",second["id"])["state"],"queued")
+                self.command("pause",job["id"])
+                stdout,stderr=process.communicate(timeout=10)
+                self.assertEqual(process.returncode,0,stderr)
+                self.assertEqual(json.loads(stdout)["state"],"paused")
 
     def test_batch_is_bounded_deduplicated_and_does_not_start_jobs(self):
         request={"url":self.base+"/file?token=batch-secret","destination":str(self.directory / "batch.bin")}

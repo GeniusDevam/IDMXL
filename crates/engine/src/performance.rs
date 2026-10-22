@@ -2,13 +2,33 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     fs::{File, OpenOptions},
-    io::Write,
+    io::{Seek, SeekFrom, Write},
     path::Path,
     time::Instant,
 };
 
+#[derive(Serialize)]
+pub(crate) struct ResponseEvent {
+    pub at_ms: i64,
+    pub offset: Option<u64>,
+    pub length: Option<u64>,
+    pub http_status: u32,
+    pub retry_after_ms: Option<u64>,
+    pub invalid_retry_after: bool,
+    pub attempt: u32,
+    pub concurrency: usize,
+}
+#[derive(Serialize)]
+pub(crate) struct RecoveryEvent {
+    pub at_ms: i64,
+    pub next_attempt_ms: i64,
+    pub attempt: u32,
+    pub http_status: u32,
+    pub retry_after_ms: Option<u64>,
+    pub invalid_retry_after: bool,
+}
 #[derive(Serialize)]
 pub(crate) struct Metrics {
     #[serde(skip)]
@@ -41,6 +61,9 @@ pub(crate) struct Metrics {
     pub checkpoint_target_bytes: u64,
     pub checkpoint_interval_ms: u64,
     pub http_versions: BTreeMap<String, u64>,
+    pub http_statuses: BTreeMap<u32, u64>,
+    pub response_events: VecDeque<ResponseEvent>,
+    pub recovery_schedules: VecDeque<RecoveryEvent>,
     pub request_dns_ms: f64,
     pub request_connect_ms: f64,
     pub request_tls_ms: f64,
@@ -82,6 +105,9 @@ impl Metrics {
             checkpoint_target_bytes: 0,
             checkpoint_interval_ms: 0,
             http_versions: BTreeMap::new(),
+            http_statuses: BTreeMap::new(),
+            response_events: VecDeque::new(),
+            recovery_schedules: VecDeque::new(),
             request_dns_ms: 0.,
             request_connect_ms: 0.,
             request_tls_ms: 0.,
@@ -111,7 +137,55 @@ impl Metrics {
         self.callback_write_ms += easy.get_ref().write_ms;
         self.callback_hash_ms += easy.get_ref().hash_ms;
     }
-    pub fn finish(&mut self, status: &str) -> Result<()> {
+    pub fn response(
+        &mut self,
+        receiver: &crate::transport::Receiver,
+        attempt: u32,
+        concurrency: usize,
+    ) {
+        *self
+            .http_statuses
+            .entry(receiver.headers.status)
+            .or_default() += 1;
+        if !self.enabled() {
+            return;
+        }
+        let (offset, length) = match receiver.mode {
+            crate::transport::Mode::Range { offset, length, .. } => (Some(offset), Some(length)),
+            _ => (None, None),
+        };
+        let raw = receiver.headers.fields.get("retry-after");
+        let delay = raw.and_then(|s| crate::engine::server_delay(s));
+        if self.response_events.len() >= 256 {
+            self.response_events.pop_front();
+        }
+        self.response_events.push_back(ResponseEvent {
+            at_ms: crate::store::now(),
+            offset,
+            length,
+            http_status: receiver.headers.status,
+            retry_after_ms: delay.map(|d| d.as_millis().min(u64::MAX as u128) as u64),
+            invalid_retry_after: raw.is_some() && delay.is_none(),
+            attempt,
+            concurrency,
+        });
+    }
+    pub fn recovery(&mut self, deadline: i64, attempt: u32, event: &crate::transport::Throttled) {
+        if self.recovery_schedules.len() >= 128 {
+            self.recovery_schedules.pop_front();
+        }
+        self.recovery_schedules.push_back(RecoveryEvent {
+            at_ms: crate::store::now(),
+            next_attempt_ms: deadline,
+            attempt,
+            http_status: event.status,
+            retry_after_ms: event
+                .delay
+                .map(|d| d.as_millis().min(u64::MAX as u128) as u64),
+            invalid_retry_after: event.invalid_retry_after,
+        });
+    }
+    pub fn snapshot(&mut self, status: &str) -> Result<()> {
         self.elapsed_ms = self.started.elapsed().as_secs_f64() * 1000.;
         self.other_ms = (self.elapsed_ms
             - self.probe_ms
@@ -123,10 +197,23 @@ impl Metrics {
             .max(0.);
         self.status = status.into();
         if let Some(mut output) = self.output.take() {
-            serde_json::to_writer_pretty(&mut output, &self)?;
-            output.write_all(b"\n")?;
+            let result = (|| -> Result<()> {
+                output.seek(SeekFrom::Start(0))?;
+                output.set_len(0)?;
+                serde_json::to_writer_pretty(&mut output, &self)?;
+                output.write_all(b"\n")?;
+                output.flush()?;
+                Ok(())
+            })();
+            self.output = Some(output);
+            result?;
         }
         Ok(())
+    }
+    pub fn finish(&mut self, status: &str) -> Result<()> {
+        let result = self.snapshot(status);
+        self.output.take();
+        result
     }
 }
 

@@ -13,6 +13,7 @@ pub mod model;
 pub mod network;
 mod performance;
 pub mod platform;
+mod recovery;
 pub mod scheduler;
 mod small_http;
 mod storage;

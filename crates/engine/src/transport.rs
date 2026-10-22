@@ -451,6 +451,20 @@ pub struct Probe {
 pub struct Throttled {
     pub url: String,
     pub delay: Option<Duration>,
+    pub status: u32,
+    pub invalid_retry_after: bool,
+}
+impl Throttled {
+    pub(crate) fn response(url: &str, headers: &Headers) -> Self {
+        let raw = headers.fields.get("retry-after");
+        let delay = raw.and_then(|s| crate::engine::server_delay(s));
+        Self {
+            url: url.into(),
+            delay,
+            status: headers.status,
+            invalid_retry_after: raw.is_some() && delay.is_none(),
+        }
+    }
 }
 impl std::fmt::Display for Throttled {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -482,14 +496,10 @@ fn probe_inner(
         }
         if let Some(error) = receiver.error {
             if error == "server_throttled" {
-                return Err(anyhow::Error::new(Throttled {
-                    url: resolved,
-                    delay: receiver
-                        .headers
-                        .fields
-                        .get("retry-after")
-                        .and_then(|n| crate::engine::server_delay(n)),
-                }));
+                return Err(anyhow::Error::new(Throttled::response(
+                    &resolved,
+                    &receiver.headers,
+                )));
             }
             bail!("{error}");
         }

@@ -9,7 +9,7 @@
 | Area | What IDMXL supports |
 | --- | --- |
 | File downloads | HTTP/HTTPS links, a single-request mode for uncertain or one-use links, and up to eight concurrent requests for safely reusable links. New reusable jobs default to a ceiling of four. |
-| Pause and recovery | Persistent checkpoints, process-crash recovery and validation of saved data before resume. Sources without safe range support restart as a single stream. |
+| Pause and recovery | Persistent checkpoints, process-crash recovery, automatic waiting/resume after server throttling, and validation of saved data before resume. Sources without safe range support restart as a single stream. |
 | Connection controls | Automatic or fixed connection counts, saved retry budgets, request/failure counters, per-file and queue speed limits. |
 | Queues and schedules | Named queues, priorities, scheduled starts/deadlines and recurring weekday or overnight hours. One file runs at a time. |
 | Link import | Multiple links, Ctrl+V and text/link drops, review before adding, file-type folder rules and collision-safe filenames. |
@@ -26,6 +26,8 @@ The native engine groups larger HTTP ranges while retaining 1 MiB recovery
 blocks, uses a bounded background disk writer, batches durable checkpoints,
 and refills idle request slots immediately.
 See [performance design and reproducible benchmarks](docs/PERFORMANCE.md).
+See [automatic server recovery](docs/RECOVERY.md) for cooldowns, recovery limits
+and the controls available while waiting.
 Speed depends on the source and connection; a universal advantage over IDM has
 not been established.
 

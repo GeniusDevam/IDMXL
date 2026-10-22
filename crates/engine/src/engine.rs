@@ -31,6 +31,8 @@ pub struct RunOptions {
     /// Experimental request-span override. Recovery blocks remain one MiB.
     pub request_mib: Option<u8>,
     pub http_version: Option<curl::easy::HttpVersion>,
+    pub recovery_timeout: Duration,
+    pub wait_for_recovery: bool,
     pub stop: Arc<AtomicBool>,
 }
 impl Default for RunOptions {
@@ -43,6 +45,8 @@ impl Default for RunOptions {
             metrics: None,
             request_mib: None,
             http_version: None,
+            recovery_timeout: Duration::from_secs(86400),
+            wait_for_recovery: true,
             stop: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -108,24 +112,101 @@ impl Engine {
         if !(1..=8).contains(&options.connections)
             || options.retries > 5
             || options.request_mib.is_some_and(|n| !(1..=32).contains(&n))
+            || options.recovery_timeout.is_zero()
+            || options.recovery_timeout > Duration::from_secs(604800)
         {
             bail!("invalid_transfer_options");
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.store.directory.join("engine.lock"))?;
-        fs2::FileExt::try_lock_exclusive(&lock).context("engine_busy")?;
-        self.store.recover_active()?;
-        if self.store.get(id)?.state == "failed" {
-            self.store.reset_retry_budget(id)?;
+        if options.metrics.is_some() && self.store.is_media(id)? {
+            bail!("media_metrics_unsupported");
         }
-        self.run_locked(id, options)
+        let mut metrics = crate::performance::Metrics::new(options.metrics.as_deref())?;
+        let result = (|| {
+            let mut recovering = false;
+            loop {
+                let current = self.store.get(id)?;
+                if recovering {
+                    if current.state == "completed" {
+                        return self.store.view(id);
+                    }
+                    if current.state == "failed" {
+                        bail!("{}", current.error.as_deref().unwrap_or("transfer_failed"));
+                    }
+                    if options.stop.load(Ordering::Relaxed)
+                        || matches!(current.requested.as_str(), "paused" | "canceled")
+                    {
+                        let state = if current.requested == "canceled" {
+                            "canceled"
+                        } else {
+                            "paused"
+                        };
+                        self.store.state(id, state, None)?;
+                        return self.store.view(id);
+                    }
+                    if current
+                        .policy
+                        .deadline
+                        .is_some_and(|n| crate::store::now() >= n)
+                    {
+                        self.store.request(id, "paused")?;
+                        return self.store.view(id);
+                    }
+                    if self.store.expire_recovery(id, options.recovery_timeout)? {
+                        bail!("recovery_timed_out");
+                    }
+                    if current
+                        .retry_not_before
+                        .is_some_and(|n| n > crate::store::now())
+                    {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                }
+                let lock = OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .read(true)
+                    .write(true)
+                    .open(self.store.directory.join("engine.lock"))?;
+                if let Err(error) = fs2::FileExt::try_lock_exclusive(&lock) {
+                    if recovering {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    return Err(error).context("engine_busy");
+                }
+                self.store.recover_active()?;
+                if self.store.get(id)?.state == "failed" {
+                    self.store.reset_retry_budget(id)?;
+                }
+                let view = self.run_locked_with_metrics(id, &options, &mut metrics)?;
+                drop(lock);
+                if view.state != "waiting" || !options.wait_for_recovery {
+                    return Ok(view);
+                }
+                recovering = true;
+            }
+        })();
+        let status = result
+            .as_ref()
+            .map(|v| v.state.as_str())
+            .unwrap_or("failed");
+        if metrics.finish(status).is_err() {
+            eprintln!("performance_report_write_failed");
+        }
+        result
     }
 
     pub(crate) fn run_locked(&self, id: &str, options: RunOptions) -> Result<JobView> {
+        let mut metrics = crate::performance::Metrics::new(None)?;
+        self.run_locked_with_metrics(id, &options, &mut metrics)
+    }
+    fn run_locked_with_metrics(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+    ) -> Result<JobView> {
         let job = self.store.get(id)?;
         self.store.capture_runnable(id)?;
         if job.state == "preparing_media" {
@@ -145,13 +226,41 @@ impl Engine {
         }
         let explicit_retry = self.store.consume_retry_override(id)?;
         if self.store.retry_deadline(&job.url)?.is_some() && !explicit_retry {
+            if job.state == "waiting" {
+                return self.store.view(id);
+            }
             bail!("server_retry_pending");
         }
-        self.store.begin(id)?;
-        match self.transfer(id, &options) {
+        if !self.store.begin(id, &job.state, &job.requested)? {
+            return self.store.view(id);
+        }
+        match self.transfer(id, options, metrics) {
             Ok(()) => self.store.view(id),
             Err(error) => {
-                if let Some(throttle) = error.downcast_ref::<transport::Throttled>()
+                let canceled =
+                    options.stop.load(Ordering::Relaxed) || self.store.requested(id)? != "run";
+                if !canceled
+                    && (job.replayable || self.store.is_media(id)?)
+                    && let Some(throttle) = error.downcast_ref::<transport::Throttled>()
+                {
+                    match self
+                        .store
+                        .schedule_recovery(id, throttle, options.recovery_timeout)
+                    {
+                        Ok((deadline, attempt)) => {
+                            metrics.recovery(deadline, attempt, throttle);
+                            if metrics.snapshot("waiting").is_err() {
+                                eprintln!("performance_report_write_failed");
+                            }
+                            return self.store.view(id);
+                        }
+                        Err(recovery) if recovery.to_string() == "recovery_timed_out" => {
+                            self.store.state(id, "failed", Some("recovery_timed_out"))?;
+                            return Err(recovery);
+                        }
+                        Err(recovery) => return Err(recovery),
+                    }
+                } else if let Some(throttle) = error.downcast_ref::<transport::Throttled>()
                     && let Some(delay) = throttle.delay
                 {
                     self.store.defer_origin(&job.url, delay)?;
@@ -225,23 +334,16 @@ impl Engine {
         }
     }
 
-    fn transfer(&self, id: &str, options: &RunOptions) -> Result<()> {
+    fn transfer(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+    ) -> Result<()> {
         if self.store.is_media(id)? {
             return crate::media::execute(self, id, options);
         }
-        let mut metrics = crate::performance::Metrics::new(options.metrics.as_deref())?;
-        let result = self.transfer_file(id, options, &mut metrics);
-        let status = if result.is_err() {
-            "failed"
-        } else if self.should_stop(id, options).unwrap_or(true) {
-            "interrupted"
-        } else {
-            "completed"
-        };
-        if metrics.finish(status).is_err() {
-            eprintln!("performance_report_write_failed");
-        }
-        result
+        self.transfer_file(id, options, metrics)
     }
 
     fn transfer_file(
@@ -264,7 +366,7 @@ impl Engine {
         } else {
             None
         };
-        metrics.probe_ms = crate::performance::milliseconds(phase);
+        metrics.probe_ms += crate::performance::milliseconds(phase);
         self.store.capture_identity(id, probe.as_ref())?;
         let ranged = probe.as_ref().is_some_and(|p| p.ranged);
         let resolved = probe
@@ -313,16 +415,19 @@ impl Engine {
         }
         let file = Arc::new(file);
         let phase = Instant::now();
-        let verified = if ranged {
-            self.download_ranges(&job, file.clone(), options, metrics)?
+        let prior_validation = metrics.resume_validation_ms;
+        let prior_verification = metrics.verification_tail_ms;
+        let downloaded = if ranged {
+            self.download_ranges(&job, file.clone(), options, metrics)
         } else {
-            self.download_sequential(&job, &resolved, file.clone(), options, metrics)?;
-            None
+            self.download_sequential(&job, &resolved, file.clone(), options, metrics)
+                .map(|_| None)
         };
-        metrics.download_ms = (crate::performance::milliseconds(phase)
-            - metrics.resume_validation_ms
-            - metrics.verification_tail_ms)
+        metrics.download_ms += (crate::performance::milliseconds(phase)
+            - (metrics.resume_validation_ms - prior_validation)
+            - (metrics.verification_tail_ms - prior_verification))
             .max(0.);
+        let verified = downloaded?;
         if self.should_stop(id, options)? {
             file.sync_all()?;
             let state = if self.store.requested(id)? == "canceled" {
@@ -401,7 +506,7 @@ impl Engine {
             }
         }
         file.set_len(total)?;
-        metrics.resume_validation_ms = crate::performance::milliseconds(phase);
+        metrics.resume_validation_ms += crate::performance::milliseconds(phase);
         let reader = File::open(&job.staging)?;
         if platform::file_id(&reader)? != platform::file_id(&file)? {
             bail!("staging_identity_mismatch");
@@ -447,7 +552,11 @@ impl Engine {
         let mut concurrency = adaptive.as_ref().map_or(connections, |t| t.limit());
         let mut sample_time = Instant::now();
         let mut sample_bytes = durable;
-        let mut origin_retry_until = Instant::now();
+        let source = job
+            .resolved_url
+            .as_deref()
+            .context("missing_resolved_url")?;
+        let mut admission_at = Instant::now() + self.store.admission_wait(source)?;
         let outcome = (|| -> Result<()> {
             while cursor < total || !pending.is_empty() || !active.is_empty() || !ending.is_empty()
             {
@@ -467,7 +576,7 @@ impl Engine {
                     continue;
                 }
                 while active.len() < concurrency {
-                    if Instant::now() < origin_retry_until {
+                    if Instant::now() < admission_at {
                         break;
                     }
                     let mut task = if let Some(index) =
@@ -537,6 +646,7 @@ impl Engine {
                     metrics.requests += 1;
                     handle.set_token(token)?;
                     active.insert(token, (handle, task));
+                    admission_at = Instant::now() + self.store.admit_request(source)?;
                 }
                 if storage.ready() {
                     for (handle, _) in active.values_mut() {
@@ -593,6 +703,7 @@ impl Engine {
                     ending.push_back(token);
                     metrics.request(&easy);
                     let receiver = easy.get_ref();
+                    metrics.response(receiver, task.attempt + 1, concurrency);
                     let error = receiver
                         .error
                         .or_else(|| {
@@ -609,21 +720,24 @@ impl Engine {
                                 .then_some("invalid_content_length")
                         });
                     if let Some(error) = error {
-                        if error == "server_throttled"
-                            && let Some(header) = receiver.headers.fields.get("retry-after")
-                            && let Some(delay) = server_delay(header)
-                        {
-                            self.store.defer_origin(
-                                job.resolved_url.as_deref().unwrap_or(&job.url),
-                                delay,
+                        if error == "server_throttled" {
+                            // A server cooldown is not a permanent failure of
+                            // these immutable recovery blocks. Drain disk work
+                            // before the outer layer persists a waiting job.
+                            self.store.record_throttle(
+                                &job.id,
+                                job.generation,
+                                task.offset,
+                                task.length,
                             )?;
-                            self.store.defer_origin(&job.url, delay)?;
+                            return Err(
+                                transport::Throttled::response(source, &receiver.headers).into()
+                            );
                         }
-                        let retryable = error == "server_throttled"
-                            || (error == "transfer_transport_failed"
-                                && result.as_ref().err().is_some_and(|e| {
-                                    matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
-                                }));
+                        let retryable = error == "transfer_transport_failed"
+                            && result.as_ref().err().is_some_and(|e| {
+                                matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
+                            });
                         if error != "transfer_interrupted" {
                             task.attempt = self.store.failed_range(
                                 &job.id,
@@ -633,17 +747,7 @@ impl Engine {
                             )?;
                         }
                         if retryable && task.attempt <= options.retries {
-                            let Some(delay) = retry_delay(
-                                receiver
-                                    .headers
-                                    .fields
-                                    .get("retry-after")
-                                    .map(String::as_str),
-                                task.attempt,
-                            ) else {
-                                // A long or unparsed server deadline must not be retried early.
-                                bail!("server_throttled");
-                            };
+                            let delay = transport_retry_delay(task.attempt);
                             task.ready = Instant::now() + delay;
                             // A fully written recovery block is immutable, even if a
                             // later part of this HTTP response was interrupted.
@@ -653,13 +757,7 @@ impl Engine {
                             if task.length == 0 {
                                 continue;
                             }
-                            if error == "server_throttled" {
-                                concurrency = 1;
-                                if let Some(controller) = adaptive.as_mut() {
-                                    controller.throttle();
-                                }
-                                origin_retry_until = origin_retry_until.max(task.ready);
-                            } else if let Some(controller) = adaptive.as_mut() {
+                            if let Some(controller) = adaptive.as_mut() {
                                 controller.throttle();
                                 concurrency = 1;
                             }
@@ -668,8 +766,9 @@ impl Engine {
                         }
                         bail!("{error}");
                     }
+                    self.store.successful_request(source)?;
                 }
-                let ready = Instant::now() >= origin_retry_until
+                let ready = Instant::now() >= admission_at
                     && (pending.iter().any(|w| w.ready <= Instant::now())
                         || (pending.is_empty() && cursor < total));
                 if active.len() < concurrency && ready {
@@ -685,9 +784,15 @@ impl Engine {
                         .map(|w| w.ready)
                         .min()
                         .unwrap()
-                        .max(origin_retry_until);
+                        .max(admission_at);
                     std::thread::sleep(
                         ready
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(100)),
+                    );
+                } else if cursor < total {
+                    std::thread::sleep(
+                        admission_at
                             .saturating_duration_since(Instant::now())
                             .min(Duration::from_millis(100)),
                     );
@@ -698,16 +803,17 @@ impl Engine {
         drop(active);
         let phase = Instant::now();
         let stats = storage.finish()?;
-        metrics.storage_drain_ms = crate::performance::milliseconds(phase);
-        metrics.storage_write_ms = stats.write_ms;
-        metrics.storage_hash_ms = stats.hash_ms;
-        metrics.storage_queue_peak_bytes = stats.queue_peak_bytes;
+        metrics.storage_drain_ms += crate::performance::milliseconds(phase);
+        metrics.storage_write_ms += stats.write_ms;
+        metrics.storage_hash_ms += stats.hash_ms;
+        metrics.storage_queue_peak_bytes =
+            metrics.storage_queue_peak_bytes.max(stats.queue_peak_bytes);
         metrics.checkpoint_target_bytes = stats.checkpoint_target_bytes;
         metrics.checkpoint_interval_ms = stats.checkpoint_interval_ms;
-        metrics.checkpoint_flush_ms = stats.flush_ms;
-        metrics.checkpoint_commit_ms = stats.commit_ms;
-        metrics.checkpoint_batches = stats.batches;
-        metrics.checkpoint_blocks = stats.blocks;
+        metrics.checkpoint_flush_ms += stats.flush_ms;
+        metrics.checkpoint_commit_ms += stats.commit_ms;
+        metrics.checkpoint_batches += stats.batches;
+        metrics.checkpoint_blocks += stats.blocks;
         for event in storage.events() {
             let crate::storage::Event::Written { offset, length } = event;
             written += length;
@@ -786,7 +892,12 @@ impl Engine {
             let easy = multi.remove2(handle)?;
             metrics.request(&easy);
             let receiver = easy.get_ref();
+            metrics.response(receiver, 1, 1);
             if let Some(error) = receiver.error {
+                if error == "server_throttled" {
+                    self.store.record_throttle(&job.id, job.generation, 0, 0)?;
+                    return Err(transport::Throttled::response(&resolved, &receiver.headers).into());
+                }
                 if error != "transfer_interrupted" {
                     self.store.failed_request(&job.id, job.generation, 0, -1)?;
                 }
@@ -912,18 +1023,12 @@ fn request_span(total: u64, cursor: u64, connections: usize, override_mib: Optio
     }
     // Shrink toward the tail so a slow final lease cannot monopolize the work.
     let blocks = (total - cursor).div_ceil(BLOCK);
-    (blocks.div_ceil((connections * 2) as u64)).clamp(1, 16) * BLOCK
+    (blocks.div_ceil((connections * 2) as u64)).clamp(4, 16) * BLOCK
 }
 
-fn retry_delay(header: Option<&str>, attempt: u32) -> Option<Duration> {
-    if let Some(header) = header {
-        let delay = server_delay(header)?;
-        return (delay <= Duration::from_secs(300)).then_some(delay);
-    }
+fn transport_retry_delay(attempt: u32) -> Duration {
     let ceiling = 200u128.checked_shl(attempt.min(5)).unwrap_or(6400);
-    Some(Duration::from_millis(
-        (uuid::Uuid::new_v4().as_u128() % ceiling) as u64,
-    ))
+    Duration::from_millis((uuid::Uuid::new_v4().as_u128() % ceiling) as u64)
 }
 
 pub(crate) fn server_delay(header: &str) -> Option<Duration> {
@@ -946,17 +1051,17 @@ mod tests {
     fn request_spans_shrink_at_tail_and_preserve_small_file_behavior() {
         assert_eq!(request_span(3 * BLOCK, 0, 4, None), BLOCK);
         assert_eq!(request_span(1024 * BLOCK, 0, 4, None), 16 * BLOCK);
-        assert_eq!(request_span(1024 * BLOCK, 1023 * BLOCK, 4, None), BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 1023 * BLOCK, 4, None), 4 * BLOCK);
         assert_eq!(request_span(1024 * BLOCK, 0, 4, Some(8)), 8 * BLOCK);
     }
     use crate::AddJob;
     #[test]
-    fn long_or_unparsed_retry_after_never_retries_early() {
-        assert_eq!(retry_delay(Some("5"), 1), Some(Duration::from_secs(5)));
-        assert!(retry_delay(Some("3600"), 1).is_none());
-        assert!(retry_delay(Some("not a date"), 1).is_none());
+    fn server_retry_after_accepts_long_waits_and_dates() {
+        assert_eq!(server_delay("5"), Some(Duration::from_secs(5)));
+        assert_eq!(server_delay("3600"), Some(Duration::from_secs(3600)));
+        assert!(server_delay("not a date").is_none());
         let soon = std::time::SystemTime::now() + Duration::from_secs(5);
-        let delay = retry_delay(Some(&httpdate::fmt_http_date(soon)), 1).unwrap();
+        let delay = server_delay(&httpdate::fmt_http_date(soon)).unwrap();
         assert!(delay > Duration::from_secs(3) && delay <= Duration::from_secs(5));
     }
     #[test]
