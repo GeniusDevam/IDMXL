@@ -1,5 +1,10 @@
 # IDMXL performance implementation and validation
 
+Latest qualification: the [22 October recovery retest](RECOVERY-RESULTS.md)
+completed a verified 14 GB file after repeated real server rejections, but took
+62m43s versus IDM's 29m22s. The older 399 MB observation below is a separate,
+limited sample and does not establish general superiority or large-file parity.
+
 21 October 2026. Measurements use the frozen optimized engine listed below. This is a preview qualification, not a general claim of superiority over IDM.
 
 ## Direct comparison with IDM

@@ -29,7 +29,11 @@ See [performance design and reproducible benchmarks](docs/PERFORMANCE.md).
 See [automatic server recovery](docs/RECOVERY.md) for cooldowns, recovery limits
 and the controls available while waiting.
 Speed depends on the source and connection; a universal advantage over IDM has
-not been established.
+not been established. The [22 October recovery retest](docs/RECOVERY-RESULTS.md)
+passes 213 local checks, a 21.47 GB pause/crash/resume test and a verified 14 GB
+public download. IDMXL recovered automatically from real server rejections, but
+took **62 min 43 s versus IDM's 29 min 22 s** in that large-file pair. The report
+retains the earlier failure and explains the measured cooldown/revalidation cost.
 
 ## Get started
 

@@ -1,8 +1,33 @@
 # IDMXL progress
 
-Updated 21 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 22 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
-Current performance checkpoint: grouped 1–16 MiB HTTP leases with compatible
+Current recovery checkpoint: runtime `eb087afaf4011a73f2ba6ea1778d033ccae28abf`
+adds persisted Waiting for server, a separate no-progress budget, full Retry-After
+support, per-origin pacing, fewer small tail requests, exact numeric diagnostics
+and waiting controls in the desktop/extension **0.1.6**. **213 unique local checks**,
+lint/formatting, frontend and installer builds pass. Windows CI **39722100156**
+passes for that exact runtime. Schema **7** upgrades with a version-6 backup.
+
+The 21,474,836,737-byte controlled transfer passed pause, owned-engine termination,
+same-generation resume, no saved-body refetch and an independent full-file hash.
+Both fresh 14,004,054,153-byte public copies passed independent SHA-256 and ZIP
+CRC checks. IDMXL completed after **20 recorded HTTP 429 body responses** and
+22 recovery schedules; **62m43.2s (29.77 Mbps)** versus IDM's **29m22.3s
+(63.57 Mbps)**. Both used a verified four-connection ceiling, with IDM's early
+buffering included. Recovery reliability improved; this pair is slower than IDM
+and establishes no general speed advantage. About 20 minutes of waiting and
+12 minutes of repeated saved-block validation explain most of the measured gap.
+
+All owned test payloads were deleted. An isolated updater qualification preserves
+completed/paused history and safely keeps upgraded binaries with schema 7 after
+a simulated post-migration failure. Matching files are prepared in the separate
+IDMXL-Recovery-Preview delivery folder; the normal-session installation is **not
+claimed updated**. No PR was merged or binary release published. The remaining
+speed work and qualification limits are in [RECOVERY-RESULTS](docs/RECOVERY-RESULTS.md)
+and [machine-readable evidence](docs/evidence/recovery.json).
+
+Previous performance checkpoint (21 October): grouped 1–16 MiB HTTP leases with compatible
 1 MiB recovery blocks, a bounded background writer, batched FULL checkpoints,
 incremental durable accounting, coalesced writes, overlapped disk SHA-256, immediate scheduler refill, numeric
 diagnostics and bounded 1/2/4/8 adaptive trials are implemented. Existing/new

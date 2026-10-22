@@ -1,5 +1,72 @@
 # Test evidence
 
+## 22 October 2026: automatic server recovery and fresh large-file retest
+
+Runtime commit `eb087afaf4011a73f2ba6ea1778d033ccae28abf`, schema 7 and extension
+0.1.6 pass **213 unique local checks**: 66 Rust, 72 ordinary Python, one separately
+enabled >4 GiB resource test and 74 Node checks. The ordinary Python discovery
+reported 73 with that resource test skipped, then the enabled resource test
+passed independently. Repeated focused runs are not counted twice. Root/native
+formatting, warnings-denied Clippy, frontend and full Windows installer builds
+pass. [Windows CI 39722100156](https://github.com/GeniusDevam/IDMXL/actions/runs/39722100156)
+passes for the exact runtime commit.
+
+Generated real HTTP fixtures reject final bytes beyond the old two-retry budget,
+exercise numeric/date/missing/invalid Retry-After, saved ten-minute deadlines,
+restart, Pause/Cancel, no-progress expiry and another origin proceeding. Long
+deadline persistence uses an isolated stored-clock/deadline simulation; separate
+cases exercise real waits. Throttled media components also resume and assemble.
+Existing TLS/HTTP2, storage, control and crash cases remain passing. The real
+4,294,967,553-byte distinct-pattern resource passes a 397-character Unicode path,
+exact size and engine SHA-256 against its independently generated reference.
+
+The frozen release engine completed **21,474,836,737 bytes**, pausing after 5 GiB
+and being deliberately killed after 10 GiB. A fresh process reused
+**10,780,409,856 saved bytes** in generation 1 without requesting their body
+ranges again. The independent full published-file SHA-256 matched
+`cc0d8604c1365e10356db6feb0113094da719f1d63c189a8a11b58c143b03030`;
+SQLite integrity_check passed.
+
+Fresh public runs downloaded the same **14,004,054,153-byte** official Blender
+DCP ZIP, IDM first and IDMXL second. The normal IDM interface verified its
+four-connection limit, and IDMXL used four too. IDM's early downloading in its
+File Info dialog was confirmed; timing includes that earlier period using the
+observed one-second Date Added/Last Try Date. Two unstarted CLI attempts are
+excluded. The active test destination was corrected without pause/restart.
+IDM completed in **1762.313 s**, **63.571 Mbps**; IDMXL in **3763.157 s**,
+**29.771 Mbps**. Both independent disk hashes matched
+`73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d`
+and all seven ZIP entries passed CRC checks. No publisher hash was supplied;
+the archives were not extracted or executed. This is one fixed-order pair,
+not a randomized speed ranking or socket-level comparison.
+
+IDMXL recorded 20 HTTP 429 completed-body responses and 22 recovery schedules,
+including probe-stage cooldowns, and completed without a manual retry. Its
+timings include **1222.344 s other/waiting**, **726.025 s resume validation**,
+**1749.935 s transfer loop** and **58.494 s verification tail**. The scheduled
+deadlines total about 1220.3 s. Nested disk/checkpoint counters overlap and
+must not be added to these elapsed phases. The earlier nearly-complete failure
+is retained. The new run proves recovery under these conditions, and is slower
+than IDM; no universal speed advantage is claimed.
+
+The isolated update qualification preserves IDs and completed data, backs up
+schema 6 before schema 7, and resumes paused saved blocks without refetching.
+A controlled failure after migration keeps readable upgraded history with its
+matching new engine. A preliminary package path-separator mismatch was caught
+before replacements; the corrected package passed. Preliminary HTTP teardown
+errors were fixed by closing Python test connections, followed by the full pass.
+All owned large/resource/update payloads were removed, the candidate/source
+were unchanged throughout measured runs, and the completed native database
+passes integrity_check. The normal IDMXL profile/install was not touched.
+
+Engine SHA-256:
+`6e9df870469d891244c52cf0af0ef5a1deaa1bf69ec670d365bf3e310ceced86`.
+Matching desktop/installer hashes and sanitized details are in
+[evidence/recovery.json](evidence/recovery.json); interpretation, remaining speed
+priorities and test limits are in [RECOVERY-RESULTS](RECOVERY-RESULTS.md).
+Real-browser UI observations below belong to earlier runtimes; no new waiting
+UI click-through, normal installation, signing or release publication is inferred.
+
 ## 21 October 2026: transfer performance pipeline
 
 The optimized engine passes **199 local top-level checks**: 58 Rust (57 engine

@@ -74,3 +74,10 @@ exercise real waits. Media tests cover a throttled segment and resumed assembly.
 
 These checks establish the tested behaviors. They do not establish compatibility
 with every server or a general speed advantage over another download manager.
+
+## Measured qualification
+
+The [22 October results](RECOVERY-RESULTS.md) include real public-server 429
+recovery, verified 14 GB completions, a 21.47 GB process-loss test and isolated
+update qualification. The recovery build completed reliably but was slower
+than IDM in that public pair; timings and remaining speed priorities are retained.
