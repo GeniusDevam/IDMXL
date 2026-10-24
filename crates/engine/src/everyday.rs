@@ -43,11 +43,23 @@ impl Store {
     pub fn reset_retry_budget(&self, id: &str) -> Result<()> {
         self.get(id)?;
         self.db.execute("UPDATE request_attempts SET budget_failures=0 WHERE job_id=?1 OR job_id IN(SELECT job_id FROM media_components WHERE parent_id=?1)",[id])?;
+        self.clear_recovery(id)?;
         Ok(())
     }
     pub(crate) fn request_counts(&self, id: &str) -> Result<(String, String)> {
         let (started,failed):(u64,u64)=self.db.query_row("SELECT COALESCE(SUM(started),0),COALESCE(SUM(total_failures),0) FROM request_attempts WHERE job_id=?1 OR job_id IN(SELECT job_id FROM media_components WHERE parent_id=?1)",[id],|r|Ok((r.get(0)?,r.get(1)?)))?;
         Ok((started.to_string(), failed.to_string()))
+    }
+    pub(crate) fn record_throttle(
+        &self,
+        id: &str,
+        generation: u64,
+        offset: u64,
+        length: u64,
+    ) -> Result<()> {
+        let first = length.min(crate::transport::RECOVERY_BLOCK);
+        self.db.execute("INSERT INTO request_attempts(job_id,generation,offset,length,total_failures) VALUES(?1,?2,?3,?4,1) ON CONFLICT(job_id,generation,offset,length) DO UPDATE SET total_failures=total_failures+1",params![id,generation,offset,first])?;
+        Ok(())
     }
     pub(crate) fn start_request(
         &self,
@@ -76,6 +88,56 @@ impl Store {
         let tx = self.write_transaction()?;
         tx.execute("UPDATE request_attempts SET budget_failures=budget_failures+1,total_failures=total_failures+1 WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,offset,length])?;
         let used=tx.query_row("SELECT budget_failures FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,offset,length],|r|r.get(0))?;
+        tx.commit()?;
+        crate::fault::point("after_retry_record");
+        Ok(used)
+    }
+
+    /// Retry budgets follow recovery blocks, not the current grouping into HTTP
+    /// requests. Regrouping holes after a crash must never replenish that budget.
+    pub(crate) fn start_range(
+        &self,
+        id: &str,
+        generation: u64,
+        offset: u64,
+        length: u64,
+        retries: u32,
+    ) -> Result<()> {
+        let tx = self.request_transaction()?;
+        let end = offset
+            .checked_add(length)
+            .context("invalid_content_range")?;
+        let exhausted: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset>=?3 AND offset<?4 AND budget_failures>?5)",params![id,generation,offset,end,retries],|r|r.get(0))?;
+        if exhausted {
+            bail!("retry_exhausted");
+        }
+        // One start per actual HTTP request, using its first canonical block.
+        let first = length.min(crate::transport::RECOVERY_BLOCK);
+        tx.execute("INSERT INTO request_attempts(job_id,generation,offset,length,started) VALUES(?1,?2,?3,?4,1) ON CONFLICT(job_id,generation,offset,length) DO UPDATE SET started=started+1",params![id,generation,offset,first])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn failed_range(
+        &self,
+        id: &str,
+        generation: u64,
+        offset: u64,
+        length: u64,
+    ) -> Result<u32> {
+        let tx = self.write_transaction()?;
+        let mut cursor = offset;
+        let end = offset
+            .checked_add(length)
+            .context("invalid_content_range")?;
+        let mut used = 0;
+        while cursor < end {
+            let size = (end - cursor).min(crate::transport::RECOVERY_BLOCK);
+            tx.execute("INSERT INTO request_attempts(job_id,generation,offset,length,budget_failures,total_failures) VALUES(?1,?2,?3,?4,1,?5) ON CONFLICT(job_id,generation,offset,length) DO UPDATE SET budget_failures=budget_failures+1,total_failures=total_failures+?5",params![id,generation,cursor,size,u8::from(cursor==offset)])?;
+            let n: u32 = tx.query_row("SELECT budget_failures FROM request_attempts WHERE job_id=?1 AND generation=?2 AND offset=?3 AND length=?4",params![id,generation,cursor,size],|r|r.get(0))?;
+            used = used.max(n);
+            cursor += size;
+        }
         tx.commit()?;
         crate::fault::point("after_retry_record");
         Ok(used)
@@ -148,6 +210,13 @@ mod tests {
     use crate::AddJob;
     #[test]
     fn request_admission_waits_for_the_writer_and_reads_the_committed_retry_budget() {
+        admission_waits(false);
+    }
+    #[test]
+    fn range_admission_waits_for_the_durable_retry_budget() {
+        admission_waits(true);
+    }
+    fn admission_waits(range: bool) {
         use std::{sync::mpsc, time::Duration};
         let root = tempfile::tempdir().unwrap();
         let writer = Store::open(root.path()).unwrap();
@@ -171,12 +240,12 @@ mod tests {
             .unwrap();
         let (send, receive) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            send.send(
-                reader
-                    .start_request(&job.id, 0, 0, 1024, 2)
-                    .map_err(|e| e.to_string()),
-            )
-            .unwrap();
+            let result = if range {
+                reader.start_range(&job.id, 0, 0, 1024, 2)
+            } else {
+                reader.start_request(&job.id, 0, 0, 1024, 2)
+            };
+            send.send(result.map_err(|e| e.to_string())).unwrap();
         });
         let early = receive.recv_timeout(Duration::from_millis(200));
         writer.db.execute_batch("COMMIT").unwrap();

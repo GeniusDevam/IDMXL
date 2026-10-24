@@ -15,6 +15,7 @@ test('popup uses matching bounded native replies and sends only typed controls',
 test('popup exposes pause/resume/cancel and explicit retry without security approval',async()=>{
   const {downloadButtons}=await import('./downloads-panel.js');
   assert.deepEqual(downloadButtons({state:'downloading'}).map(b=>b.action),['pause','cancel']);
+  assert.deepEqual(downloadButtons({state:'waiting',retry_not_before:String(Date.now()+600000)}).map(b=>b.action),['pause','cancel']);
   assert.deepEqual(downloadButtons({state:'paused',can_resume:true}).map(b=>b.action),['start','cancel']);
   assert.deepEqual(downloadButtons({state:'failed',mode:'ranged'}).map(b=>b.action),['retry','cancel']);
   assert.deepEqual(downloadButtons({state:'attention'}).map(b=>b.action),['cancel']);

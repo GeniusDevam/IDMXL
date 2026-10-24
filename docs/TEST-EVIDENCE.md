@@ -1,5 +1,185 @@
 # Test evidence
 
+## 22–24 October 2026: retained validation and fresh speed comparison
+
+Runtime `0bfe65c3ee2e3c326be7fe871d10495b5293b740` passes **219 distinct checks**:
+68 Rust, 76 ordinary Python, one enabled >4 GiB resource case and 74 Node.
+Formatting, warnings-denied root/native lint, frontend, engine and full Windows
+installer builds pass. [Windows CI 39779365305](https://github.com/GeniusDevam/IDMXL/actions/runs/39779365305)
+passed for that exact runtime. Focused reruns are not counted again.
+
+New HTTP fixtures verify exact saved-data reuse across repeated 429/503 waits,
+Windows denial of external staging-file modification/replacement, a second
+worker failing to take the retained job, and release on pause/cancel. Process
+loss, corrupted saved data and a changed remote ETag force validation or a new
+generation. Persisted origin pacing survives successful progress and store
+reopen. A single eligible queue job continues across its time quantum; existing
+multiple-job fairness checks still pass.
+
+The new 21,474,836,737-byte controlled transfer passed pause after 5 GiB,
+deliberate process termination after 10 GiB and fresh-process resume in generation
+1. It retained 10,854,858,752 bytes without saved-body refetch, passed independent
+published-file SHA-256 and database integrity, then deleted the owned payload.
+The separate 4,294,967,553-byte Unicode-path case and isolated schema 6-to-7 update
+qualification passed. A post-migration fault keeps the upgraded engine/history
+pair readable. Normal installed history is outside these isolated tests.
+
+The fresh same-session public pair on 23 October downloaded the identical
+14,004,054,153-byte official Blender ZIP, IDM first then IDMXL. Both passed an
+independent full-file hash and all seven ZIP CRCs; both payloads were deleted.
+IDM took **1923.351 seconds (58.249 Mbps)**; IDMXL took **1617.298 seconds
+(69.271 Mbps)**, **15.91% less elapsed time**. The actual IDM interface verified
+four connections and the destination. Its File Info prebuffering was disabled
+before entry for a clean Start Download timer and restored immediately after
+starting. Its displayed Last Try Date matched the timer. IDMXL requested a
+ceiling of four but used **one sequential HTTP/2 body request**, with zero failed
+requests. This mode difference and fixed order limit interpretation; it is not
+causal proof of the range-specific changes or a general speed ranking.
+
+A 22 October native run separately passed in 1796.486 seconds (62.362 Mbps), also
+sequential. An interrupted IDM setup produced no completion and is excluded.
+The supplemental controlled old/new/new/old mechanism comparison, individual
+timings, interrupted attempt, cleanup receipts and limitations are recorded in
+[SPEED-RESULTS](SPEED-RESULTS.md) and [speed-update.json](evidence/speed-update.json).
+Earlier real-browser UI observations below retain their original runtime scope.
+
+## 22 October 2026: automatic server recovery and fresh large-file retest
+
+Runtime commit `eb087afaf4011a73f2ba6ea1778d033ccae28abf`, schema 7 and extension
+0.1.6 pass **213 unique local checks**: 66 Rust, 72 ordinary Python, one separately
+enabled >4 GiB resource test and 74 Node checks. The ordinary Python discovery
+reported 73 with that resource test skipped, then the enabled resource test
+passed independently. Repeated focused runs are not counted twice. Root/native
+formatting, warnings-denied Clippy, frontend and full Windows installer builds
+pass. [Windows CI 39722100156](https://github.com/GeniusDevam/IDMXL/actions/runs/39722100156)
+passes for the exact runtime commit.
+
+Generated real HTTP fixtures reject final bytes beyond the old two-retry budget,
+exercise numeric/date/missing/invalid Retry-After, saved ten-minute deadlines,
+restart, Pause/Cancel, no-progress expiry and another origin proceeding. Long
+deadline persistence uses an isolated stored-clock/deadline simulation; separate
+cases exercise real waits. Throttled media components also resume and assemble.
+Existing TLS/HTTP2, storage, control and crash cases remain passing. The real
+4,294,967,553-byte distinct-pattern resource passes a 397-character Unicode path,
+exact size and engine SHA-256 against its independently generated reference.
+
+The frozen release engine completed **21,474,836,737 bytes**, pausing after 5 GiB
+and being deliberately killed after 10 GiB. A fresh process reused
+**10,780,409,856 saved bytes** in generation 1 without requesting their body
+ranges again. The independent full published-file SHA-256 matched
+`cc0d8604c1365e10356db6feb0113094da719f1d63c189a8a11b58c143b03030`;
+SQLite integrity_check passed.
+
+Fresh public runs downloaded the same **14,004,054,153-byte** official Blender
+DCP ZIP, IDM first and IDMXL second. The normal IDM interface verified its
+four-connection limit, and IDMXL used four too. IDM's early downloading in its
+File Info dialog was confirmed; timing includes that earlier period using the
+observed one-second Date Added/Last Try Date. Two unstarted CLI attempts are
+excluded. The active test destination was corrected without pause/restart.
+IDM completed in **1762.313 s**, **63.571 Mbps**; IDMXL in **3763.157 s**,
+**29.771 Mbps**. Both independent disk hashes matched
+`73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d`
+and all seven ZIP entries passed CRC checks. No publisher hash was supplied;
+the archives were not extracted or executed. This is one fixed-order pair,
+not a randomized speed ranking or socket-level comparison.
+
+IDMXL recorded 20 HTTP 429 completed-body responses and 22 recovery schedules,
+including probe-stage cooldowns, and completed without a manual retry. Its
+timings include **1222.344 s other/waiting**, **726.025 s resume validation**,
+**1749.935 s transfer loop** and **58.494 s verification tail**. The scheduled
+deadlines total about 1220.3 s. Nested disk/checkpoint counters overlap and
+must not be added to these elapsed phases. The earlier nearly-complete failure
+is retained. The new run proves recovery under these conditions, and is slower
+than IDM; no universal speed advantage is claimed.
+
+The isolated update qualification preserves IDs and completed data, backs up
+schema 6 before schema 7, and resumes paused saved blocks without refetching.
+A controlled failure after migration keeps readable upgraded history with its
+matching new engine. A preliminary package path-separator mismatch was caught
+before replacements; the corrected package passed. Preliminary HTTP teardown
+errors were fixed by closing Python test connections, followed by the full pass.
+All owned large/resource/update payloads were removed, the candidate/source
+were unchanged throughout measured runs, and the completed native database
+passes integrity_check. The normal IDMXL profile/install was not touched.
+
+Engine SHA-256:
+`6e9df870469d891244c52cf0af0ef5a1deaa1bf69ec670d365bf3e310ceced86`.
+Matching desktop/installer hashes and sanitized details are in
+[evidence/recovery.json](evidence/recovery.json); interpretation, remaining speed
+priorities and test limits are in [RECOVERY-RESULTS](RECOVERY-RESULTS.md).
+Real-browser UI observations below belong to earlier runtimes; no new waiting
+UI click-through, normal installation, signing or release publication is inferred.
+
+## 21 October 2026: transfer performance pipeline
+
+The optimized engine passes **199 local top-level checks**: 58 Rust (57 engine
+and one native framing), 66 Python transfer/media/private-CA HTTP2 cases, the
+separate real >4 GiB resource case, and 74 extension/link-import Node cases.
+The ordinary Python run reports 67 cases with only the optional resource case
+skipped; that case was subsequently enabled and passed separately. Root Clippy
+with warnings denied, formatting and the TypeScript/Vite build pass.
+
+New storage cases force a 128 KiB queue and a slow writer, prove that paused
+libcurl callbacks are accepted exactly once and remain within that bound, and
+pause/cancel with queued writes without publishing an unfinished file. A
+read-only staging handle demonstrates that writer failure cannot create a
+durable extent. Contended request admission waits for and reads the committed
+FULL retry budget even when its start counter uses NORMAL synchronization.
+
+The first complete run had one media-publication fault case return exit 1
+instead of the intended injected exit 86, before assembly. Its original error
+was not retained by that assertion. The assertion now includes stderr. All seven
+media cases subsequently passed, followed by the complete 67-case recheck
+(92.257 seconds, one optional resource skip). The initial failure is retained
+as an unresolved intermittent observation; concurrent building is not an
+established cause.
+
+Recovery tests cover abrupt exits at all eight write/flush/commit/publication
+boundaries using both 1 MiB and grouped 2 MiB HTTP leases. New cases cover grouped
+request truncation, pause within a long request, canonical retry budgets across
+regrouping, idempotent checkpoint batches, denied external staging writes,
+independent ordered verification, and redacted numeric diagnostics. Existing
+browser capture, location, retry, confirmed deletion and bulk-control fixtures
+continue to pass. Real Chrome UI checks below belong to the previous runtime;
+no new real-browser click-through is inferred from these backend tests.
+
+The release resource test transferred **4,294,967,553 bytes** with distinct
+SHA-derived 64 KiB block patterns, verified SHA-256
+`f69b5a49cb06ef8cfb5c521d994afe33b74dbb0358fd15e8d56dbc3a2cbba46e`, and
+published through a **397-character Unicode path**. Total fixture execution was
+137.344 seconds, including setup/reference work; it is not an internet speed
+measurement. Its owned payload was removed by test cleanup. Tested engine SHA-256:
+`ad51c56d30c4d835c4a49c2498aee8c5e610a49b162a9bdcc2d08877c0a0ceaf`.
+
+The updated NSIS installer and native desktop build pass, as does native Clippy
+with warnings denied. The isolated update helper preserves two history IDs, a
+completed file and 2,097,152 saved bytes from the original engine. The replacement
+engine resumes in the same generation without requesting those saved body
+blocks, produces the exact reference SHA-256, and passes SQLite integrity_check.
+This does not assert that the user's normal-session installation was replaced.
+
+Thirty final controlled local downloads all verified. Mean time reductions
+against the preserved original engine ranged from 18.97% to 79.22% in the five
+configured cases; full distributions and slow samples are retained. These are
+single-laptop fixtures, not calibrated internet measurements. A separate
+diagnostic-on/off comparison retains its own raw results without correcting
+the reported download times.
+
+The contemporary public comparison used three downloads per app of the same
+399,051,129-byte official Blender ZIP, saved IDM setting eight and IDMXL requested
+parallelism eight. All six published SHA-256 values matched. IDM averaged
+55.572 seconds (median 54.208); IDMXL averaged 48.245 (median 48.478), or 13.19%
+less mean time. This is one-source evidence with lifecycle/verification and
+unmeasured socket/resource limitations. It does not qualify broad IDM parity
+or superiority. Each owned ZIP was removed after verification.
+
+[Windows CI](https://github.com/GeniusDevam/IDMXL/actions/runs/39589624438) passes
+for tested code `673a8d3`. Full results, binary hashes and preview qualification
+are in [PERFORMANCE-RESULTS.md](PERFORMANCE-RESULTS.md) and
+[numeric evidence](evidence/performance.json). The
+design and remaining HTTP3/mirror/network-profile qualification are documented
+in [PERFORMANCE.md](PERFORMANCE.md).
+
 ## 19 October 2026: download locations and management controls
 
 Runtime `dd2270ff8b7976ef25e10b5118a03d4b9447a355` implements extension **0.1.5** and the matching native controls. The complete `scripts/test.ps1 -Faults -Protocols -Media` run passed **182 distinct checks**: 49 Rust (48 engine, 1 CLI), 59 Python methods (60 reported, one optional >4 GiB skip; 135.173 seconds) and 74 Node checks (72 extension, 2 link import). Rust formatting, root/native Clippy with warnings denied, TypeScript/Vite and final release/NSIS builds passed. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed.

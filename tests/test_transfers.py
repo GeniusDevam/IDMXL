@@ -40,12 +40,6 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         with self.guard:
             self.counters[(path, byte_range)] += 1
             attempt = self.counters[(path, byte_range)]
-        if path == "/retry-crash" and byte_range not in ("", "bytes=0-0") and not getattr(self.server, "retry_healthy", False):
-            self.send_response(429)
-            self.send_header("Retry-After", "0")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
         if path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "/file")
@@ -98,6 +92,8 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             return
         if path == "/truncate" and byte_range != "bytes=0-0" and attempt == 1:
             body = body[:len(body) // 2]
+        if path == "/retry-crash" and byte_range not in ("", "bytes=0-0") and not getattr(self.server,"retry_healthy",False):
+            body=body[:len(body)//2]
         try:
             for i in range(0, len(body), 32768):
                 self.wfile.write(body[i:i + 32768])
@@ -185,6 +181,102 @@ class TransferTests(unittest.TestCase):
 
     def test_conditional_parallel_ranges(self):
         self.assert_completed(self.add(), "ranged")
+
+    def test_multi_block_request_preserves_recovery_blocks_and_metrics_are_redacted(self):
+        job=self.add("/file?token=do-not-log")
+        metrics=self.directory / "performance.json"
+        result=self.command("run",job["id"],"--connections","1","--request-mib","2","--metrics",str(metrics))
+        self.assertEqual(result["state"],"completed")
+        self.assertEqual(result["sha256"],DIGEST)
+        with sqlite3.connect(self.state / "jobs.db") as db:
+            extents=db.execute("SELECT offset,length FROM extents WHERE job_id=? ORDER BY offset",(job["id"],)).fetchall()
+        db.close()
+        self.assertEqual(extents,[(0,1048576),(1048576,1048576),(2097152,1048576),(3145728,len(DATA)-3145728)])
+        report=json.loads(metrics.read_text())
+        self.assertEqual(report["requests"],2)
+        self.assertEqual(report["checkpoint_blocks"],4)
+        self.assertLess(report["checkpoint_batches"],4)
+        self.assertEqual(report["status"],"completed")
+        self.assertEqual(report["http_versions"],{"HTTP/1.1":2})
+        self.assertNotIn("do-not-log",metrics.read_text())
+        self.assertNotIn(self.base,metrics.read_text())
+
+    def test_multi_block_truncation_resumes_only_missing_suffix(self):
+        job=self.add("/truncate")
+        result=self.command("run",job["id"],"--connections","1","--request-mib","2")
+        self.assertEqual(result["sha256"],DIGEST)
+        self.assertEqual(result["durable_bytes"],str(len(DATA)))
+        self.assertGreater(int(result["failed_requests"]),0)
+
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Fault-build storage backpressure fixture")
+    def test_storage_backpressure_replays_callback_once_and_stays_bounded(self):
+        job=self.add()
+        metrics=self.directory / "backpressure.json"
+        env=dict(os.environ,IDMXL_TEST_STORAGE_QUEUE_BYTES="131072",IDMXL_TEST_STORAGE_DELAY_MS="2")
+        result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"],"--request-mib","2","--connections","4","--metrics",str(metrics)],capture_output=True,text=True,encoding="utf-8",env=env,timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
+        view=json.loads(result.stdout)
+        self.assertEqual(view["sha256"],DIGEST)
+        self.assertEqual(hashlib.sha256(Path(view["destination"]).read_bytes()).hexdigest(),DIGEST)
+        report=json.loads(metrics.read_text())
+        self.assertGreater(report["storage_backpressure_events"],0)
+        self.assertLessEqual(report["storage_queue_peak_bytes"],131072)
+
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Fault-build queued-write control fixture")
+    def test_pause_and_cancel_with_queued_writes_never_publish_early(self):
+        for action in ["pause","cancel"]:
+            with self.subTest(action=action):
+                job=self.add(name=f"queued-{action}.bin")
+                env=dict(os.environ,IDMXL_TEST_STORAGE_QUEUE_BYTES="131072",IDMXL_TEST_STORAGE_DELAY_MS="10")
+                process=subprocess.Popen([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"],"--request-mib","2"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",env=env)
+                self.processes.append(process)
+                self.wait_checkpoint(job,process)
+                self.command(action,job["id"])
+                stdout,stderr=process.communicate(timeout=15)
+                self.assertEqual(process.returncode,0,stderr)
+                view=json.loads(stdout)
+                self.assertEqual(view["state"],"paused" if action=="pause" else "canceled")
+                self.assertEqual(view["failed_requests"],"0")
+                self.assertGreater(int(view["durable_bytes"]),0)
+                self.assertFalse(Path(view["destination"]).exists())
+                if action=="pause":
+                    self.assertEqual(self.command("run",job["id"])["sha256"],DIGEST)
+
+    def test_eight_request_ceiling_is_saved_and_larger_values_are_rejected(self):
+        job=self.add()
+        saved=self.command("policy",job["id"],input=json.dumps({"connections":8}))
+        self.assertEqual(saved["policy"]["connections"],8)
+        self.command("policy",job["id"],input=json.dumps({"connections":9}),success=False)
+        result=self.command("run",job["id"],"--connections","8")
+        self.assertEqual(result["sha256"],DIGEST)
+
+    def test_pause_inside_long_request_keeps_completed_blocks(self):
+        job=self.add("/slow")
+        process=self.start(job,"--connections","1","--request-mib","3")
+        checkpoint=self.wait_checkpoint(job,process)
+        self.assertGreaterEqual(int(checkpoint["durable_bytes"]),1048576)
+        self.command("pause",job["id"])
+        stdout,stderr=process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        self.assertEqual(json.loads(stdout)["state"],"paused")
+        self.assertGreater(int(json.loads(stdout)["durable_bytes"]),0)
+        result=self.command("run",job["id"],"--connections","2","--request-mib","2")
+        self.assertEqual(result["sha256"],DIGEST)
+
+    @unittest.skipUnless(os.name=="nt","Windows sharing-mode contract")
+    def test_active_staging_excludes_external_writers_and_releases_them_on_pause(self):
+        job=self.add("/slow")
+        process=self.start(job,"--connections","1","--request-mib","3")
+        self.wait_checkpoint(job,process)
+        staging=next(self.directory.glob(".idmxl-*.part"))
+        with self.assertRaises(PermissionError):
+            with staging.open("r+b"):pass
+        self.command("pause",job["id"])
+        stdout,stderr=process.communicate(timeout=10)
+        self.assertEqual(process.returncode,0,stderr)
+        with staging.open("r+b") as stream:
+            self.assertEqual(stream.read(1),DATA[:1])
+        self.assertEqual(self.command("run",job["id"])["sha256"],DIGEST)
 
     def test_adaptive_ranges_keep_hash_and_identity_contract(self):
         job=self.add()
@@ -639,14 +731,23 @@ class TransferTests(unittest.TestCase):
                 # Distinct state profiles keep the first origin cooldown out of the second case.
                 self.state=self.directory / path.removeprefix("/")
                 job=self.add(path,name=path.removeprefix("/")+".bin")
-                result=self.command("run",job["id"],success=False)
-                self.assertIn("server_throttled",result.stderr)
-                view=self.command("show",job["id"])
+                process=self.start(job)
+                deadline=time.monotonic()+10
+                while True:
+                    view=self.command("show",job["id"])
+                    if view["state"]=="waiting":break
+                    self.assertIsNone(process.poll())
+                    self.assertLess(time.monotonic(),deadline)
+                    time.sleep(.05)
                 self.assertGreater(int(view["retry_not_before"]),int(time.time()*1000)+3500000)
                 second=self.add(name=path.removeprefix("/")+"-other.bin")
                 self.assertIn("server_retry_pending",self.command("run",second["id"],success=False).stderr)
                 self.command("queue-run")
                 self.assertEqual(self.command("show",second["id"])["state"],"queued")
+                self.command("pause",job["id"])
+                stdout,stderr=process.communicate(timeout=10)
+                self.assertEqual(process.returncode,0,stderr)
+                self.assertEqual(json.loads(stdout)["state"],"paused")
 
     def test_batch_is_bounded_deduplicated_and_does_not_start_jobs(self):
         request={"url":self.base+"/file?token=batch-secret","destination":str(self.directory / "batch.bin")}
@@ -805,6 +906,21 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(order[:3],[first["id"],second["id"],first["id"]])
         with Fixture.guard:self.assertEqual(Fixture.counters[("/slow","bytes=0-1048575")]-before,1)
 
+    @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Use the test-only short scheduling quantum")
+    def test_single_queue_download_keeps_its_connections_past_quantum(self):
+        job=self.add("/slow",name="single-queue.bin")
+        self.command("policy",job["id"],input=json.dumps({"connections":1}))
+        db=sqlite3.connect(self.state/"jobs.db")
+        db.executescript("CREATE TABLE audit(id TEXT); CREATE TRIGGER starts AFTER UPDATE OF state ON jobs WHEN new.state='downloading' AND old.state!='downloading' BEGIN INSERT INTO audit VALUES(new.id); END;")
+        db.close()
+        result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"queue-run"],env=dict(os.environ,IDMXL_TEST_QUANTUM_MS="500"),capture_output=True,text=True,timeout=35)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.command("show",job["id"])["state"],"completed")
+        db=sqlite3.connect(self.state/"jobs.db")
+        count=db.execute("SELECT COUNT(*) FROM audit").fetchone()[0];db.close()
+        self.assertEqual(count,1,"no competing job should mean no periodic restart")
+        self.assertEqual(hashlib.sha256(Path(job["destination"]).read_bytes()).hexdigest(),DIGEST)
+
     @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
     def test_failed_retry_budget_survives_repeated_process_loss(self):
         self.server.retry_healthy = False
@@ -865,14 +981,15 @@ class TransferTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("IDMXL_FAULT_EXE"),"Run scripts/test.ps1 -Faults for boundary exits")
     def test_abrupt_exit_at_each_durability_boundary(self):
-        for point in ["after_body_write","after_extent_flush","before_extent_commit","after_extent_commit",
-                      "after_publication_intent","after_origin_metadata","after_rename","before_completion_commit"]:
-            with self.subTest(point=point):
-                job=self.add(name=point+".bin")
-                result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"]],
-                                      env=dict(os.environ,IDMXL_FAULT=point),capture_output=True,timeout=15)
-                self.assertEqual(result.returncode,86,result.stderr)
-                self.assert_completed(job)
+        for span in [1,2]:
+            for point in ["after_body_write","after_extent_flush","before_extent_commit","after_extent_commit",
+                          "after_publication_intent","after_origin_metadata","after_rename","before_completion_commit"]:
+                with self.subTest(point=point,request_mib=span):
+                    job=self.add(name=f"{point}-{span}.bin")
+                    result=subprocess.run([os.environ["IDMXL_FAULT_EXE"],"--state-dir",str(self.state),"run",job["id"],"--request-mib",str(span)],
+                                          env=dict(os.environ,IDMXL_FAULT=point),capture_output=True,timeout=15)
+                    self.assertEqual(result.returncode,86,result.stderr)
+                    self.assert_completed(job)
 
 
 if __name__ == "__main__":

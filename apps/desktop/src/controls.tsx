@@ -134,6 +134,7 @@ export function DownloadManagement({
               "downloading",
               "pausing",
               "verifying",
+              "waiting",
             ].includes(j.state)
           : !["completed", "canceled", "publishing"].includes(j.state)),
     );
