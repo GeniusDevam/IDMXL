@@ -90,3 +90,8 @@ The [22 October results](RECOVERY-RESULTS.md) include real public-server 429
 recovery, verified 14 GB completions, a 21.47 GB process-loss test and isolated
 update qualification. The recovery build completed reliably but was slower
 than IDM in that public pair; timings and remaining speed priorities are retained.
+
+The subsequent [speed update qualification](SPEED-RESULTS.md) records retained
+validation tests and a fresh 14 GB pair where IDMXL completed in 26m57s versus
+32m03s for IDM. That native public run used sequential mode; the separate
+controlled rejection fixture measures the retained-validation change directly.

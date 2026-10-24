@@ -24,16 +24,20 @@
 
 The native engine groups larger HTTP ranges while retaining 1 MiB recovery
 blocks, uses a bounded background disk writer, batches durable checkpoints,
-and refills idle request slots immediately.
+and refills idle request slots immediately. Large-file requests can reach 128 MiB.
+On Windows, safely owned and validated staging data stays reusable across ordinary
+server waits, avoiding repeated full-prefix scans. Process restarts and changed
+resources still require validation.
 See [performance design and reproducible benchmarks](docs/PERFORMANCE.md).
 See [automatic server recovery](docs/RECOVERY.md) for cooldowns, recovery limits
 and the controls available while waiting.
 Speed depends on the source and connection; a universal advantage over IDM has
-not been established. The [22 October recovery retest](docs/RECOVERY-RESULTS.md)
-passes 213 local checks, a 21.47 GB pause/crash/resume test and a verified 14 GB
-public download. IDMXL recovered automatically from real server rejections, but
-took **62 min 43 s versus IDM's 29 min 22 s** in that large-file pair. The report
-retains the earlier failure and explains the measured cooldown/revalidation cost.
+not been established. In the [latest 14 GB comparison](docs/SPEED-RESULTS.md),
+IDMXL completed in **26 min 57 s versus IDM's 32 min 03 s**, using **15.91% less
+time** in one same-session pair. Both files passed independent SHA-256 and ZIP
+integrity checks and were deleted. IDMXL used one sequential stream in this run;
+this result alone does not prove the benefit of its range optimizations.
+The [earlier slower recovery run](docs/RECOVERY-RESULTS.md) remains documented.
 
 ## Get started
 
@@ -114,7 +118,18 @@ Actual Edge connection/explicit handoff/completed-file hash and Chrome native au
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The current local suite passed **182 checks** (49 Rust, 59 Python and 74 Node), plus native lint, frontend and installer builds. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed. Native Save As Save/Cancel and app confirmation Cancel/close were checked with isolated generated entries. The normal-session update receipt verifies the matching engine/desktop, all fourteen extension files, preserved history IDs and restoration of the previously running queue. The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The extension Pause/Resume/Cancel test also passed by user confirmation. See [test evidence](docs/TEST-EVIDENCE.md) and the [download controls guide](docs/DOWNLOAD-CONTROLS.md) for scope. Historical >4 GiB results were not rerun or counted here.
+The current runtime passed **219 checks** (68 Rust, 76 ordinary Python, one
+separately enabled >4 GiB resource test and 74 Node), plus native lint, frontend
+and installer builds. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39779365305)
+passed. A separate **21.47 GB** pause/process-loss/resume test preserved saved
+data and passed independent full-file verification. The matching update passed
+isolated history/migration checks; normal-session installation is not claimed.
+
+Earlier browser controls were checked in the user's real Chrome session on
+extension 0.1.5: Save/Cancel, live progress, Pause/Resume/Cancel and no separate
+Chrome download after native handoff. Those observations are retained with their
+original runtime rather than counted as new UI tests. See [test evidence](docs/TEST-EVIDENCE.md)
+and the [download controls guide](docs/DOWNLOAD-CONTROLS.md) for scope.
 
 ## CLI and development
 

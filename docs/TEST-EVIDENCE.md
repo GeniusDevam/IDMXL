@@ -1,5 +1,48 @@
 # Test evidence
 
+## 22–24 October 2026: retained validation and fresh speed comparison
+
+Runtime `0bfe65c3ee2e3c326be7fe871d10495b5293b740` passes **219 distinct checks**:
+68 Rust, 76 ordinary Python, one enabled >4 GiB resource case and 74 Node.
+Formatting, warnings-denied root/native lint, frontend, engine and full Windows
+installer builds pass. [Windows CI 39779365305](https://github.com/GeniusDevam/IDMXL/actions/runs/39779365305)
+passed for that exact runtime. Focused reruns are not counted again.
+
+New HTTP fixtures verify exact saved-data reuse across repeated 429/503 waits,
+Windows denial of external staging-file modification/replacement, a second
+worker failing to take the retained job, and release on pause/cancel. Process
+loss, corrupted saved data and a changed remote ETag force validation or a new
+generation. Persisted origin pacing survives successful progress and store
+reopen. A single eligible queue job continues across its time quantum; existing
+multiple-job fairness checks still pass.
+
+The new 21,474,836,737-byte controlled transfer passed pause after 5 GiB,
+deliberate process termination after 10 GiB and fresh-process resume in generation
+1. It retained 10,854,858,752 bytes without saved-body refetch, passed independent
+published-file SHA-256 and database integrity, then deleted the owned payload.
+The separate 4,294,967,553-byte Unicode-path case and isolated schema 6-to-7 update
+qualification passed. A post-migration fault keeps the upgraded engine/history
+pair readable. Normal installed history is outside these isolated tests.
+
+The fresh same-session public pair on 23 October downloaded the identical
+14,004,054,153-byte official Blender ZIP, IDM first then IDMXL. Both passed an
+independent full-file hash and all seven ZIP CRCs; both payloads were deleted.
+IDM took **1923.351 seconds (58.249 Mbps)**; IDMXL took **1617.298 seconds
+(69.271 Mbps)**, **15.91% less elapsed time**. The actual IDM interface verified
+four connections and the destination. Its File Info prebuffering was disabled
+before entry for a clean Start Download timer and restored immediately after
+starting. Its displayed Last Try Date matched the timer. IDMXL requested a
+ceiling of four but used **one sequential HTTP/2 body request**, with zero failed
+requests. This mode difference and fixed order limit interpretation; it is not
+causal proof of the range-specific changes or a general speed ranking.
+
+A 22 October native run separately passed in 1796.486 seconds (62.362 Mbps), also
+sequential. An interrupted IDM setup produced no completion and is excluded.
+The supplemental controlled old/new/new/old mechanism comparison, individual
+timings, interrupted attempt, cleanup receipts and limitations are recorded in
+[SPEED-RESULTS](SPEED-RESULTS.md) and [speed-update.json](evidence/speed-update.json).
+Earlier real-browser UI observations below retain their original runtime scope.
+
 ## 22 October 2026: automatic server recovery and fresh large-file retest
 
 Runtime commit `eb087afaf4011a73f2ba6ea1778d033ccae28abf`, schema 7 and extension

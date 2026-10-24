@@ -1,6 +1,27 @@
 # IDMXL progress
 
-Updated 22 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 24 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+
+Current speed checkpoint: runtime `0bfe65c3ee2e3c326be7fe871d10495b5293b740`
+retains verified Windows transfer sessions across ordinary server waits, preserves
+learned origin throttling across successful progress, uses automatic large-file
+requests up to 128 MiB, and avoids needless queue rotation for a single eligible
+file. Restart/identity-change validation, durable checkpoints and whole-file
+verification remain required. Schema 7 and extension 0.1.6 are unchanged.
+
+The exact runtime passes **219 unique checks**, lint, release/installer builds
+and Windows CI **39779365305**. A new 21.47 GB pause/process-loss/resume test and
+isolated migration/update qualification passed. In the fresh 23 October public
+pair, IDMXL completed 14,004,054,153 bytes in **26m57.3s (69.27 Mbps)** versus IDM's
+**32m03.4s (58.25 Mbps)**, using **15.91% less time**. Both full-file hashes and
+all ZIP CRCs passed; the test files were deleted. IDMXL used a single stream,
+so the public result alone does not establish the benefit of range-specific
+changes. See [SPEED-RESULTS](docs/SPEED-RESULTS.md) and its numeric evidence for
+the controlled mechanism test, preserved earlier results and limits.
+
+Matching update files are prepared in IDMXL-Speed-Preview. The normal installed
+copy is not claimed updated, no PR was merged and no binary release published.
+The recovery checkpoint below is historical.
 
 Current recovery checkpoint: runtime `eb087afaf4011a73f2ba6ea1778d033ccae28abf`
 adds persisted Waiting for server, a separate no-progress budget, full Retry-After
