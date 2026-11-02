@@ -13,7 +13,7 @@ const reasons = {
   below_size_limit: "Kept in Chrome: the file is not larger than 1 MB.",
   capture_permission_missing: "Kept in Chrome: automatic capture is not allowed for this download.",
   browser_finished_first: "Chrome completed this file before a verified takeover could finish.",
-  native_takeover_failed: "Kept in Chrome: IDMXL could not prepare a verified public download. The server may need your browser login, lack range support, or the native connection may be unavailable.",
+  native_takeover_failed: "Kept in Chrome: IDMXL could not verify an independent transfer. The site may require a browser-only operation, the link may have expired, or the native host may be unavailable.",
 };
 
 export function captureReason(code) {

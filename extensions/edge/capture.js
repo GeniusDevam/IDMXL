@@ -1,7 +1,7 @@
 // No request bodies, credential values or source URLs are persisted by automatic capture.
 import { CAPTURE_PERMISSIONS } from "./capture-settings.js";
 import { captureReason } from "./capture-diagnostics.js";
-import { createBrowserBridge } from "./browser-bridge.js";
+
 
 const HOST = "dev.idmxl.host";
 export const MINIMUM_CAPTURE_BYTES = 1_000_000;
@@ -50,9 +50,12 @@ function browserEligible(download) {
     !download.byExtensionId &&
     download.state === "in_progress" &&
     download.danger === "safe" &&
-    Number.isSafeInteger(download.totalBytes) &&
-    download.totalBytes > MINIMUM_CAPTURE_BYTES
+    (torrentFile(download) || download.totalBytes <= 0 || download.totalBytes > MINIMUM_CAPTURE_BYTES)
   );
+}
+function torrentFile(download) {
+  try { return download.mime === "application/x-bittorrent" || /\.torrent$/i.test(download.filename || "") || /\.torrent$/i.test(new URL(download.finalUrl || download.url).pathname); }
+  catch { return false; }
 }
 export function createCapture(
   api,
@@ -122,7 +125,7 @@ export function createCapture(
   }
   async function native(record, kind, fields = {}) {
     const reply = await api.runtime.sendNativeMessage(HOST, {
-      version: 2,
+      version: record.version || 2,
       kind,
       request_id: record.request_id,
       ...fields,
@@ -130,7 +133,7 @@ export function createCapture(
     });
     if (reply?.error === "user_cancelled") throw new Error("user_cancelled");
     if (
-      reply?.version !== 2 ||
+      reply?.version !== (record.version || 2) ||
       reply.accepted !== true ||
       reply.request_id !== record.request_id ||
       !reply.job_id
@@ -170,6 +173,7 @@ export function createCapture(
     if (download.state !== "interrupted" || download.error !== "USER_CANCELED")
       throw new Error("cancellation_unconfirmed");
     let ready = await native(record, "status");
+    if (ready.phase === "expired" && record.version === 6) throw new Error("handoff_expired");
     if (ready.phase === "expired")
       ready = await native(record, "prepare", {
         url: eligibleSource(download)?.href,
@@ -185,19 +189,24 @@ export function createCapture(
     await setPhase(record, "committed");
     const automatic = reply.activation?.queue_started === true;
     await outcome(download, automatic ? "captured" : "captured_manual_start", "idmxl");
-    // Confirmation failure must never undo a committed handoff or recapture its job.
-    try {
-      await api.storage.local.set({
-        captureConfirmation: { filename: record.filename, bytes: Number(record.total), job_id: record.job_id, at: clock(), automatic, desktop_requested: reply.activation?.desktop_requested === true },
-      });
-      await showCaptureConfirmation(api);
-      await api.storage.local.set({ captureNoticeError: null });
-    } catch {
-      await api.storage.local.set({ captureNoticeError: "confirmation_unavailable" });
-    }
+    // Chrome no longer owns any bytes, location or controls after commit.
+    // Erasing the canceled history item does not remove the native job or its files.
+    try { await api.downloads.erase({id:download.id}); } catch {}
+
   }
   async function recoverOne(record) {
     if (terminal.has(record.phase)) return;
+    if (record.version === 7) {
+      const download = await item(record);
+      if (download.error === "USER_CANCELED" && record.job_id) {
+        await setPhase(record,"committed");
+        try { await api.downloads.erase({id:download.id}); } catch {}
+      } else {
+        if (download.paused && record.paused_by_us) await api.downloads.resume(download.id);
+        await setPhase(record,"released");
+      }
+      return;
+    }
     try {
       const download = await item(record);
       if(record.phase === "cancel_user_requested") {await cancelChosenDownload(record);return;}
@@ -243,20 +252,16 @@ export function createCapture(
       requests.delete(details.requestId);
       return;
     }
-    // Cookies are never copied. A public representation may still qualify if
-    // native preparation independently verifies it without the browser session.
-    // Authorization, partial transfers and incomplete observation stay in Chrome.
-    const credentialed =
-      !Array.isArray(details.requestHeaders) ||
-      (details.requestHeaders || []).some((h) =>
-        ["authorization", "proxy-authorization", "range"].includes(
-          h.name.toLowerCase(),
-        ),
-      );
+    const requestHeaders = details.requestHeaders || [];
+    if (!Array.isArray(details.requestHeaders) || requestHeaders.some(h => ["range", "proxy-authorization"].includes(h.name.toLowerCase()))) return;
     requests.set(details.requestId, {
-      url: networkUrl(details.url),
-      at: clock(),
-      credentialed,
+      url: networkUrl(details.url), at: clock(),
+      context: {
+        origin: new URL(details.url).origin,
+        headers: requestHeaders.filter(h => ["cookie","authorization","referer","origin","user-agent","accept","accept-language"].includes(h.name.toLowerCase()))
+          .map(h => [h.name.toLowerCase(), h.value || ""]),
+        content_type: null,
+      },
     });
     if (requests.size > 256) requests.delete(requests.keys().next().value);
   }
@@ -274,24 +279,12 @@ export function createCapture(
     const [etag] = values("etag"),
       [length] = values("content-length");
     const encoding = values("content-encoding");
-    request.valid =
-      !request.credentialed &&
-      values("etag").length === 1 &&
-      /^"[^"\r\n]*"$/.test(etag || "") &&
-      (etag || "").length <= 1024 &&
-      values("content-length").length === 1 &&
-      /^\d{1,16}$/.test(length || "") &&
-      BigInt(length) > 0n &&
-      BigInt(length) <= BigInt(Number.MAX_SAFE_INTEGER) &&
-      (encoding.length === 0 ||
-        (encoding.length === 1 &&
-          typeof encoding[0] === "string" &&
-          encoding[0].toLowerCase() === "identity"));
-    request.etag = etag;
-    request.total = request.valid ? BigInt(length).toString() : null;
-    request.reason = request.credentialed ? "browser_session_or_range"
-      : values("etag").length !== 1 || !/^"[^"\r\n]*"$/.test(etag || "") ? "strong_identity_missing"
-      : !request.valid ? "response_identity_unverified" : "observed";
+    request.valid = values("etag").length <= 1 && values("content-length").length <= 1 && (encoding.length === 0 || encoding.length === 1 && typeof encoding[0] === "string" && encoding[0].toLowerCase() === "identity");
+    request.etag = /^"[^"\r\n]*"$/.test(etag || "") ? etag : "";
+    request.total = /^\d{1,16}$/.test(length || "") && BigInt(length) <= BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(length).toString() : null;
+    request.context.expected_etag = request.etag || null;
+    request.context.content_type = values("content-type")[0]?.split(";")[0].trim().toLowerCase() || null;
+    request.reason = request.valid ? "observed" : "response_identity_unverified";
     request.at = clock();
     if (request.valid) void enqueue(async () => {
       for (const [id, waiting] of pending) {
@@ -321,24 +314,47 @@ export function createCapture(
     const source = eligibleSource(download);
     if (!source) { await outcome(download, "browser_only_source"); return; }
     if (!(await allowed(config, source))) { await outcome(download, "capture_permission_missing"); return; }
+    // Chromium can emit filename determination with zero/unknown size and no
+    // filename. Use the observed response instead of prematurely opening Save As.
+    if (download.totalBytes <= 0) {
+      const latest=[...requests.values()].filter(r=>r.url===source.href && r.valid).at(-1);
+      download={...download,totalBytes:latest?.total !== null && latest?.total !== undefined ? Number(latest.total) : -1};
+    }
+    if (torrentFile(download) && browserEligible(download) && !download.paused) {
+      const key=`${download.id}:${download.startTime}`;
+      if ((await records())[key]) return;
+      const record={key,version:7,request_id:uuid(),download_id:download.id,start_time:download.startTime,phase:"pausing",paused_by_us:true,updated:clock()};
+      await save(record);
+      try {
+        await api.downloads.pause(download.id);
+        const reply=await api.runtime.sendNativeMessage(HOST,{version:7,kind:"torrent_inspect",request_id:record.request_id,url:source.href,context:[...requests.values()].filter(r=>r.url===source.href).at(-1)?.context || {origin:source.origin,headers:[],content_type:null}});
+        if (!reply?.accepted || reply.version!==7 || reply.request_id!==record.request_id || !reply.job_id) throw new Error("torrent_handoff_failed");
+        record.job_id=reply.job_id;
+        await setPhase(record,"cancel_requested");
+        await api.downloads.cancel(download.id);
+        await recoverOne(record);
+        await status("Choose the torrent files and download folder in IDMXL.");
+      } catch { await recoverOne(record); }
+      return;
+    }
     pending.set(download.id, { url: source.href, startTime: download.startTime, at: clock() });
     if (pending.size > 256) pending.delete(pending.keys().next().value);
     if (download.totalBytes <= MINIMUM_CAPTURE_BYTES && download.totalBytes >= 0) {
       await outcome(download, "below_size_limit"); return;
     }
-    if (!browserEligible(download) || download.paused || !download.filename) {
+    if (!browserEligible(download) || download.paused) {
       await outcome(download, download.danger !== "safe" ? "browser_safety_check" : "waiting_for_download_details"); return;
     }
     const observations = [...requests.values()].filter((r) => r.url === source.href && clock() - r.at < 30000);
     const matching = observations.filter(
       (r) =>
         r.valid &&
-        r.total === String(download.totalBytes),
+        (r.total === null || download.totalBytes < 0 || r.total === String(download.totalBytes)),
     );
     // A navigation and its download request can expose the same representation
     // twice. Collapse identical identities, but never guess between conflicting
     // or credential-bearing observations of the same URL.
-    const candidates = [...new Map(matching.map((r) => [JSON.stringify([r.etag, r.total]), r])).values()];
+    const candidates = [...new Map(matching.map((r) => [JSON.stringify([r.etag, r.total, r.context]), r])).values()];
     const ambiguous = observations.length > 1 && observations.some((r) => !r.valid);
     if (candidates.length !== 1 || ambiguous) {
       await outcome(download, !observations.length ? "request_not_observed" : candidates.length > 1 || ambiguous ? "ambiguous_request" : observations[0].reason === "observed" ? "response_identity_unverified" : observations[0].reason || "response_identity_unverified");
@@ -349,12 +365,13 @@ export function createCapture(
     pending.delete(download.id);
     const record = {
       key,
+      version: 6,
       request_id: uuid(),
       download_id: download.id,
       start_time: download.startTime,
       etag: candidates[0].etag,
-      total: candidates[0].total,
-      filename: download.filename.split(/[\\/]/).pop() || "download.bin",
+      total: candidates[0].total || (download.totalBytes >= 0 ? String(download.totalBytes) : null),
+      filename: (download.filename || new URL(source.href).pathname).split(/[\\/]/).pop() || "download.bin",
       phase: "pausing",
       paused_by_us: true,
       updated: clock(),
@@ -368,7 +385,7 @@ export function createCapture(
         !browserEligible(paused) ||
         !paused.paused ||
         eligibleSource(paused)?.href !== source.href ||
-        String(paused.totalBytes) !== record.total
+        record.total !== null && paused.totalBytes > 0 && String(paused.totalBytes) !== record.total
       ) {
         await release(record);
         return;
@@ -376,8 +393,8 @@ export function createCapture(
       const ready = await native(record, "prepare", {
         url: source.href,
         filename: record.filename,
-        etag: record.etag,
-        total: record.total,
+        ...(record.total ? {total: record.total} : {}),
+        context: candidates[0].context,
       });
       if (ready.phase !== "ready" || ready.expires < clock() + 5000) {
         await release(record);
@@ -392,7 +409,7 @@ export function createCapture(
         !browserEligible(current) ||
         !current.paused ||
         eligibleSource(current)?.href !== source.href ||
-        String(current.totalBytes) !== record.total
+        record.total !== null && current.totalBytes > 0 && String(current.totalBytes) !== record.total
       ) {
         await release(record);
         return;
@@ -422,13 +439,16 @@ export function createCapture(
     stop: () => { stopped = true; requests.clear(); pending.clear(); for(const timer of browserTimers.values())clearTimeout(timer); browserTimers.clear(); },
     created: (download) => stopped ? Promise.resolve() : enqueue(() => created(download)),
     determiningFilename: (download, suggest) => {
-      if (stopped || !browserEligible(download) || download.paused || !download.filename) {
+      if (stopped || !browserEligible(download)) {
         suggest();
         return false;
       }
-      // Keep Chrome's target-selection dialog pending until ownership is
-      // resolved. A committed native takeover has already canceled this item.
-      void enqueue(() => created(download)).catch(() => {}).finally(() => suggest());
+      // Canceling the browser item ends filename determination. Calling suggest
+      // after cancellation can resurrect its Save As dialog in Chromium.
+      void enqueue(() => created(download)).catch(() => {}).finally(async () => {
+        const saved = (await records())[`${download.id}:${download.startTime}`];
+        if (!["committed", "user_canceled", "cancel_user_requested", "cancel_requested", "attention"].includes(saved?.phase)) suggest();
+      });
       return true;
     },
     changed: (delta) =>
@@ -457,8 +477,8 @@ export function createCapture(
 export function attachCapture(api) {
   // Register synchronously when the worker starts so its first download event is not lost.
   if (!api.downloads || !api.webRequest) return null;
-  const browser = createBrowserBridge(api, {showNotice:()=>showCaptureConfirmation(api)});
-  const capture = createCapture(api, Date.now, () => crypto.randomUUID(), browser);
+  const browser = { ready: Promise.resolve(), idle: () => Promise.resolve(), dispose() {} };
+  const capture = createCapture(api, Date.now, () => crypto.randomUUID());
   const registered = [];
   const add = (event, listener, ...args) => {
     event.addListener(listener, ...args);
@@ -504,14 +524,5 @@ export function installCapture(api) {
   return attached ? attached.ready.then(() => true, () => true) : Promise.resolve(false);
 }
 
-export async function showCaptureConfirmation(api) {
-  if (!api.windows?.create) throw new Error("confirmation_unavailable");
-  const { captureNoticeWindow } = api.storage.session
-    ? await api.storage.session.get("captureNoticeWindow") : {};
-  if (Number.isInteger(captureNoticeWindow)) {
-    try { await api.windows.update(captureNoticeWindow, { focused: true }); return; } catch {}
-  }
-  const window = await api.windows.create({ url: api.runtime.getURL("capture-status.html"), type: "popup", width: 450, height: 400, focused: true });
-  if (api.storage.session && Number.isInteger(window?.id))
-    await api.storage.session.set({ captureNoticeWindow: window.id });
-}
+// Kept as a no-op for old callers. Successful capture opens the desktop itself.
+export async function showCaptureConfirmation() {}

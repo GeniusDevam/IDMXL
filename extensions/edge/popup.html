@@ -8,7 +8,7 @@
   <body>
     <h1>IDMXL</h1>
     <p>
-      Right-click a public file link and choose
+      Right-click a file or torrent link and choose
       <strong>Queue link in IDMXL</strong>.
     </p>
     <p id="status" role="status">No handoff yet.</p>
@@ -20,7 +20,7 @@
     </section>
     <section aria-labelledby="capture-heading">
       <h2 id="capture-heading">Automatic downloads</h2>
-      <p>Show browser downloads in IDMXL, including small files and files that need the browser session.</p>
+      <p>Move downloads over 1 MB to IDMXL. Torrent files are captured at any size.</p>
       <button id="enable-capture" type="button">Enable automatic capture</button>
       <button id="disable" type="button">Turn capture off</button>
       <p id="rules" role="status"></p>
@@ -29,7 +29,7 @@
         <p id="capture-detail" role="status"></p>
         <button id="refresh-capture" type="button">Refresh capture details</button>
       </details>
-      <small>Compatible files over 1 MB use IDMXL's engine. Other downloads use clearly labeled Browser transfer mode: the browser keeps the original transfer, and IDMXL shows progress and controls. Keep the browser open and finish its Save As dialog for those files. Private downloads and browser security approvals remain in the browser.</small>
+      <small>Captured files use IDMXL's engine and chosen folder. Chrome's transfer is canceled and removed after handoff. Session cookies and headers are scoped to the original site and protected on this PC. Browser-only POST/blob transfers and browser security approvals remain in Chrome.</small>
     </section>
     <details>
       <summary>Video and audio in this tab</summary>
@@ -61,8 +61,7 @@
       </p>
     </details>
     <small
-      >Signed-in sessions are not transferred. Open IDMXL to start queued
-      links.</small
+      >IDMXL opens automatically for captured downloads. Torrents ask you to choose files and a folder before starting.</small
     >
     <script type="module" src="popup.js"></script>
   </body>

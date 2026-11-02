@@ -33,6 +33,13 @@ pub fn is_public(ip: IpAddr) -> bool {
 /// The caller repeats this for every redirect and every new request.
 pub fn pin_public<H: Handler>(easy: &mut Easy2<H>, source: &str) -> Result<()> {
     let url = crate::platform::checked_url(source)?;
+    #[cfg(feature = "fault-injection")]
+    if std::env::var("IDMXL_TEST_CAPTURE_ORIGIN").ok().as_deref()
+        == Some(url.origin().ascii_serialization().as_str())
+        && url.host_str().is_some_and(|h| h == "127.0.0.1")
+    {
+        return Ok(());
+    }
     let port = url
         .port_or_known_default()
         .ok_or_else(|| anyhow::anyhow!("invalid_url"))?;

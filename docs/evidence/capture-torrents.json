@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-02",
+  "version": "0.2.0",
+  "schema": 8,
+  "extension_version": "0.2.0",
+  "checks": {
+    "rust": 72,
+    "http_tls_media": 76,
+    "torrent": 12,
+    "javascript": 78,
+    "total_unique": 238,
+    "separate_browser_scenarios": 5
+  },
+  "results": {
+    "root_and_native_lint": "passed",
+    "frontend_and_nsis_build": "passed",
+    "tcp_and_utp_process_loss_recovery": "passed",
+    "additional_utp_confirmations": 2,
+    "independent_hashes": "passed",
+    "normal_installed_files_verified": 109,
+    "native_ui": "Add Torrent and Settings rendered; Cancel/Escape worked in isolated profile",
+    "chrome_reload": "not completed; Computer Use stopped because it could not confidently identify Chrome URL"
+  },
+  "limits": [
+    "Browser-only POST/blob/data, incognito and unverified transfers remain in Chrome",
+    "No new internet speed benchmark; existing qualified HTTP optimizations retained",
+    "Torrent tests use generated local data and peers; no public-swarm speed claim",
+    "Normal-session history was not inspected after installation; profile files were not removed",
+    "The separate >4 GiB resource test was not repeated in this update"
+  ],
+  "artifacts": {
+    "idmxl.exe": {
+      "bytes": 5426176,
+      "sha256": "326a6cb3b71484ccd16837f6bf2a1d01f57d44ed5dccf4f843b0ba5b819c9498"
+    },
+    "idmxl-desktop.exe": {
+      "bytes": 14445568,
+      "sha256": "1cc6735f275c13cff86e7acbbfa9378188c296f926b2ea22d5d5784bddafdf6b"
+    },
+    "IDMXL_0.2.0_x64-setup.exe": {
+      "bytes": 31406184,
+      "sha256": "e7f547d8c0816671ac77183c55e083db1e312747e0c844516a10981c0117f537"
+    },
+    "torrent/idmxl-torrent.exe": {
+      "bytes": 1945873,
+      "sha256": "df41111f1781b9951992e4da0dcf38680ee2fd749e3f51937f9468f19abe0b57"
+    }
+  }
+}

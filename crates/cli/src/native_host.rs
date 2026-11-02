@@ -35,6 +35,7 @@ struct Request {
     confirm_destination: Option<bool>,
     job_id: Option<String>,
     action: Option<String>,
+    context: Option<idmxl_engine::request_context::RequestContext>,
 }
 
 fn safe_name(name: Option<&str>) -> String {
@@ -143,11 +144,35 @@ pub fn serve(origin: &str) -> Result<()> {
                 || request.version == 3
                     && matches!(request.kind.as_str(), "media_inspect" | "media_enqueue")
                 || request.version == 4 && request.kind == "browser_sync"
-                || request.version == 5 && matches!(request.kind.as_str(), "jobs" | "control"))
+                || request.version == 5 && matches!(request.kind.as_str(), "jobs" | "control")
+                || request.version == 6
+                    && matches!(
+                        request.kind.as_str(),
+                        "prepare" | "status" | "commit" | "abort"
+                    )
+                || request.version == 7 && request.kind == "torrent_inspect")
             {
                 bail!("unsupported_message");
             }
             let id = uuid::Uuid::parse_str(&request.request_id).context("invalid_request_id")?;
+            if request.version == 7 {
+                let source = request.url.as_deref().context("invalid_message")?;
+                let executable = std::env::current_exe()?;
+                let job = idmxl_engine::torrent::inspect_browser(
+                    &store.directory,
+                    &executable,
+                    source,
+                    request.context.as_ref(),
+                )?;
+                let opened =
+                    idmxl_engine::application::open_interface(&store, &executable).unwrap_or(false);
+                return Ok(
+                    serde_json::json!({"version":7,"accepted":true,"request_id":id.to_string(),"job_id":job["id"],"desktop_requested":opened}),
+                );
+            }
+            if request.version != 6 && request.context.is_some() {
+                bail!("invalid_message");
+            }
             if request.version == 5 {
                 if request.url.is_some()
                     || request.filename.is_some()
@@ -171,17 +196,47 @@ pub fn serve(origin: &str) -> Result<()> {
                     if !["start", "pause", "cancel", "retry"].contains(&action.as_str()) {
                         bail!("invalid_message");
                     }
-                    idmxl_engine::application::control_download(
-                        &store,
-                        &std::env::current_exe()?,
-                        &job,
-                        &action,
-                    )?;
+                    if let Some(torrent_id) = job.strip_prefix("torrent:") {
+                        idmxl_engine::torrent::request(
+                            &store.directory,
+                            &std::env::current_exe()?,
+                            &serde_json::json!({"kind":"control","id":torrent_id,"action":action}),
+                        )?;
+                    } else {
+                        idmxl_engine::application::control_download(
+                            &store,
+                            &std::env::current_exe()?,
+                            &job,
+                            &action,
+                        )?;
+                    }
                 } else if request.job_id.is_some() || request.action.is_some() {
                     bail!("invalid_message");
                 }
-                let jobs:Vec<_>=store.desktop_jobs()?.into_iter().filter(|j|!["completed","canceled"].contains(&j.state.as_str())).take(100).map(|j|
+                let mut jobs:Vec<_>=store.desktop_jobs()?.into_iter().filter(|j|!["completed","canceled"].contains(&j.state.as_str())).take(100).map(|j|
                     serde_json::json!({"id":j.id,"name":j.name,"state":j.state,"mode":j.mode,"received_bytes":j.received_bytes,"total_bytes":j.total_bytes,"speed_bytes_per_second":j.speed_bytes_per_second,"can_resume":j.mode!="browser"||j.replayable,"retry_not_before":j.retry_not_before,"last_http_status":j.last_http_status,"recovery_attempts":j.recovery_attempts})).collect();
+                if store.directory.join("torrent/torrents.db").is_file()
+                    && let Ok(snapshot) = idmxl_engine::torrent::request(
+                        &store.directory,
+                        &std::env::current_exe()?,
+                        &serde_json::json!({"kind":"list"}),
+                    )
+                {
+                    for j in snapshot["jobs"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|j| {
+                            !["completed", "canceled", "selecting"]
+                                .contains(&j["state"].as_str().unwrap_or(""))
+                        })
+                    {
+                        if jobs.len() >= 100 {
+                            break;
+                        }
+                        jobs.push(serde_json::json!({"id":format!("torrent:{}",j["id"].as_str().unwrap_or("")),"name":j["name"],"state":j["state"],"mode":"torrent","received_bytes":j["received_bytes"],"total_bytes":j["total_bytes"],"speed_bytes_per_second":j["download_speed"],"can_resume":true}));
+                    }
+                }
                 return Ok(
                     serde_json::json!({"version":5,"accepted":true,"request_id":id.to_string(),"jobs":jobs}),
                 );
@@ -294,7 +349,7 @@ pub fn serve(origin: &str) -> Result<()> {
             {
                 bail!("invalid_message");
             }
-            if request.version == 2 {
+            if request.version == 2 || request.version == 6 {
                 let status = match request.kind.as_str() {
                     "prepare" => {
                         let destination = chosen_destination(
@@ -304,18 +359,33 @@ pub fn serve(origin: &str) -> Result<()> {
                             &directory,
                             request.confirm_destination == Some(true),
                         )?;
-                        let status = store.prepare_capture_at(
-                            &id.to_string(),
-                            request.url.as_deref().context("invalid_message")?,
-                            &destination,
-                            request.etag.as_deref().context("invalid_message")?,
-                            request
-                                .total
-                                .as_deref()
-                                .context("invalid_message")?
-                                .parse()
-                                .context("invalid_message")?,
-                        )?;
+                        let status = if request.version == 6 {
+                            store.prepare_native_capture(
+                                &id.to_string(),
+                                request.url.as_deref().context("invalid_message")?,
+                                &destination,
+                                request
+                                    .total
+                                    .as_deref()
+                                    .map(str::parse)
+                                    .transpose()
+                                    .context("invalid_message")?,
+                                request.context.as_ref().context("invalid_message")?,
+                            )?
+                        } else {
+                            store.prepare_capture_at(
+                                &id.to_string(),
+                                request.url.as_deref().context("invalid_message")?,
+                                &destination,
+                                request.etag.as_deref().context("invalid_message")?,
+                                request
+                                    .total
+                                    .as_deref()
+                                    .context("invalid_message")?
+                                    .parse()
+                                    .context("invalid_message")?,
+                            )?
+                        };
                         if request.confirm_destination == Some(true) {
                             store.remember_destination(&id.to_string(), &destination)?;
                         }
@@ -346,7 +416,7 @@ pub fn serve(origin: &str) -> Result<()> {
                     None
                 };
                 return Ok(
-                    serde_json::json!({"version":2,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"filename":store.view(&status.job_id)?.name,"phase":status.phase,"expires":status.expires,"activation":activation}),
+                    serde_json::json!({"version":request.version,"accepted":true,"request_id":id.to_string(),"job_id":status.job_id,"filename":store.view(&status.job_id)?.name,"phase":status.phase,"expires":status.expires,"activation":activation}),
                 );
             }
             if request.etag.is_some()

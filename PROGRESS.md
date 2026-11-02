@@ -1,6 +1,33 @@
 # IDMXL progress
 
-Updated 24 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 2 November 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+
+Current 0.2.0 checkpoint: native capture now owns captured GET transfers (with
+origin-scoped protected request context where required), suppresses its receipt
+popup and Chrome's filename callback after takeover, cancels/erases Chrome's
+transfer and retains independent native controls. The old automatic browser-owned
+fallback is no longer attached. Blob/POST/incognito/unverified transfers remain
+explicit browser downloads.
+
+Integrated BitTorrent uses bundled libtorrent 2.1.1: v1/v2/hybrid, magnets and
+local/URL torrent inputs, file review, priorities, trackers/webseeds, DHT/PEX/LSD,
+TCP/uTP, encryption, seeding/queue limits, pause/resume/retry/recheck, relocation,
+creation/export and confirmed deletion. Metadata is held before folder approval;
+resume records are protected and unclean starts recheck pieces. Desktop paste,
+file drop, browser magnet clicks and Windows handler registration are included.
+
+**238 unique local checks pass**, plus five isolated-browser scenarios and two
+additional uTP recovery confirmations. Root/native lint and the frontend/NSIS
+build pass. The normal installation was updated; all **109 runtime files** matched
+its staged package. No profile files were deleted. Computer Use checked Add
+Torrent/Settings and Cancel/Escape in an isolated profile, then stopped because
+it could not confidently determine Chrome's URL. **A user click to Reload the
+existing Chrome extension remains required.** Normal history after installation
+and the loaded Chrome version are not claimed checked. See
+[qualification](docs/CAPTURE-TORRENTS.md), [torrent guide](docs/TORRENTS.md) and
+[evidence](docs/evidence/capture-torrents.json). Earlier checkpoints below are
+historical. No new public-swarm speed test or universal IDM/uTorrent parity claim.
+
 
 Current speed checkpoint: runtime `0bfe65c3ee2e3c326be7fe871d10495b5293b740`
 retains verified Windows transfer sessions across ordinary server waits, preserves

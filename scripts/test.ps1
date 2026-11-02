@@ -1,4 +1,4 @@
-param([switch]$Faults, [switch]$Protocols,[switch]$Media,[string]$MediaBuildDirectory)
+param([switch]$Faults, [switch]$Protocols,[switch]$Media,[switch]$Torrents,[string]$MediaBuildDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'tools.ps1')
@@ -33,9 +33,16 @@ try {
     }
     cargo build --workspace --locked
     if ($LASTEXITCODE -ne 0) { throw 'CLI build failed.' }
+    if ($Torrents) {$env:IDMXL_SKIP_TORRENTS='1'}
     python -m unittest discover -s tests -v
     if ($LASTEXITCODE -ne 0) { throw 'HTTP fixture tests failed.' }
-    node --test extensions/edge/background.test.cjs extensions/edge/capture.test.cjs extensions/edge/capture-settings.test.cjs extensions/edge/capture-manager.test.cjs extensions/edge/popup.test.cjs extensions/edge/capture-status.test.cjs extensions/edge/browser-bridge.test.cjs extensions/edge/downloads-panel.test.cjs
+    if ($Torrents) {
+        Remove-Item Env:IDMXL_SKIP_TORRENTS -ErrorAction SilentlyContinue
+        & (Join-Path $PSScriptRoot 'stage-torrent.ps1')
+        & (Join-Path $repo '.local\torrent-build\Scripts\python.exe') -m unittest discover -s tests -p test_torrents.py -v
+        if ($LASTEXITCODE -ne 0) { throw 'BitTorrent peer/recovery tests failed.' }
+    }
+    node --test extensions/edge/background.test.cjs extensions/edge/capture.test.cjs extensions/edge/capture-settings.test.cjs extensions/edge/capture-manager.test.cjs extensions/edge/popup.test.cjs extensions/edge/capture-status.test.cjs extensions/edge/browser-bridge.test.cjs extensions/edge/downloads-panel.test.cjs extensions/edge/torrent-links.test.cjs
     if ($LASTEXITCODE -ne 0) { throw 'Extension behavior tests failed.' }
     if (-not (Test-Path -LiteralPath 'apps\desktop\node_modules')) {
         npm.cmd --prefix apps/desktop ci --no-audit --no-fund
@@ -49,5 +56,6 @@ try {
     Remove-Item Env:IDMXL_FAULT_EXE -ErrorAction SilentlyContinue
     Remove-Item Env:IDMXL_PROTOCOL_TESTS -ErrorAction SilentlyContinue
     Remove-Item Env:IDMXL_REQUIRE_MEDIA_TESTS -ErrorAction SilentlyContinue
+    Remove-Item Env:IDMXL_SKIP_TORRENTS -ErrorAction SilentlyContinue
     Pop-Location
 }

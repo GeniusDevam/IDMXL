@@ -1,6 +1,8 @@
 # Dependency and distribution record
 
-Cargo.lock is authoritative for exact selected versions. Rust 1.99.0 is pinned in rust-toolchain.toml. This milestone uses Rust/C tooling and Python only for tests; Python is not a shipped runtime.
+Cargo.lock is authoritative for exact selected versions. Rust 1.99.0 is pinned in rust-toolchain.toml. Since 0.2.0, a packaged Python runtime is shipped exclusively with the native libtorrent worker. Users do not need a separate Python installation.
+
+The torrent worker pins libtorrent 2.1.1 and PyInstaller 6.16.0 in `torrent/requirements.txt`. Its staged build-dependencies file records the build environment. Redistribution notices for libtorrent, Boost, Python, OpenSSL and the PyInstaller bootloader exception are in `torrent/notices` and shipped with the worker. The inventory includes hashes of its native components and executable. The worker uses libtorrent's native protocol/disk implementation; Python hosts controls and durable state.
 
 Direct components: anyhow (MIT/Apache-2.0), clap (MIT/Apache-2.0), curl/curl-sys (MIT bindings with curl's own licence), ctrlc (MIT/Apache-2.0), fs2 (MIT/Apache-2.0), rusqlite (MIT) and bundled SQLite (public domain), serde/serde_json (MIT/Apache-2.0), sha2 (MIT/Apache-2.0), url (MIT/Apache-2.0), uuid (MIT/Apache-2.0), windows-sys (MIT/Apache-2.0), and tempfile (MIT/Apache-2.0, test-only).
 

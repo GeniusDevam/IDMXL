@@ -1,8 +1,8 @@
 # IDMXL
 
-**A Windows download manager for files and supported video/audio streams.** IDMXL combines a desktop interface, a persistent download queue, safe resume checks and optional browser integration. It uses a Rust/libcurl engine with a Tauri/React interface.
+**A Windows download manager for files, torrents and supported video/audio streams.** IDMXL combines a desktop interface, a persistent download queue, safe resume checks and optional browser integration. It uses a Rust/libcurl engine with a Tauri/React interface.
 
-**Status: 0.1.0 development preview for Windows 11 x64.** Everyday downloads and a defined media subset are implemented. This is an independent project; it is not affiliated with Internet Download Manager and does not provide full IDM feature parity.
+**Status: 0.2.0 development preview for Windows 11 x64.** Everyday downloads and a defined media subset are implemented. This is an independent project; it is not affiliated with Internet Download Manager and does not provide full IDM feature parity.
 
 ## Features
 
@@ -11,14 +11,15 @@
 | File downloads | HTTP/HTTPS links, a single-request mode for uncertain or one-use links, and up to eight concurrent requests for safely reusable links. New reusable jobs default to a ceiling of four. |
 | Pause and recovery | Persistent checkpoints, process-crash recovery, automatic waiting/resume after server throttling, and validation of saved data before resume. Sources without safe range support restart as a single stream. |
 | Connection controls | Automatic or fixed connection counts, saved retry budgets, request/failure counters, per-file and queue speed limits. |
-| Queues and schedules | Named queues, priorities, scheduled starts/deadlines and recurring weekday or overnight hours. One file runs at a time. |
+| Queues and schedules | Named queues, priorities, scheduled starts/deadlines and recurring weekday or overnight hours. One HTTP/media file runs at a time; torrents have their own configurable parallel queue. |
 | Link import | Multiple links, Ctrl+V and text/link drops, review before adding, file-type folder rules and collision-safe filenames. |
 | Expired links | Replace a file URL; retain saved bytes only when the original trusted hash and strict resource-identity checks allow it. |
 | Verification | Whole-file SHA-256 overlaps downloading; optional expected hash, no silent overwrites and Windows Internet-zone metadata for completed downloads. |
 | Desktop controls | Searchable history, progress/speed/ETA, light/dark themes, reveal in folder, tray support and background downloads after closing the interface. |
 | Locations and file actions | Native save-location confirmation, suggested default after four uses, editable default and paused file destinations, immediate retry, confirmed file deletion and confirmed Pause/Cancel/Delete all. |
 | Completion alerts | Optional Windows notifications while the interface is running; disabled by default. |
-| Browser integration | An unpacked extension for Edge and Chrome with explicit public-link handoff, native capture over 1 MB plus browser-assisted progress and controls for other ordinary downloads, and clicked media-element discovery. See qualification details below. |
+| Browser integration | An unpacked extension for Edge and Chrome: native capture over 1 MB, session-aware GET transfers, one destination chooser, independent progress and controls, torrent/magnet handoff and media discovery. No capture receipt popup or continuing Chrome transfer after successful handoff. |
+| Torrents | Magnet links, local/URL torrent files, v1/v2/hybrid, file selection and priorities, trackers, DHT/PEX/LSD, TCP/uTP, encryption, web seeds, parallel queues, seeding limits, background pause/resume and crash recheck, relocation, export and creation. [Torrent guide](docs/TORRENTS.md). |
 | Video and audio | Direct media, restricted clear HLS VOD and static DASH; exact track selection, audio-only output and verified assembly without re-encoding or upscaling. |
 | Local state | SQLite history and Windows user-scoped protection for source URLs. Python is not required to run the built application. |
 
@@ -39,6 +40,8 @@ integrity checks and were deleted. IDMXL used one sequential stream in this run;
 this result alone does not prove the benefit of its range optimizations.
 The [earlier slower recovery run](docs/RECOVERY-RESULTS.md) remains documented.
 
+See [the capture and torrent update](docs/CAPTURE-TORRENTS.md) for the new workflow and current verification results.
+
 ## Get started
 
 Public prebuilt installers are not published yet. Build from source using the steps below. Existing preview installers are unsigned, and online updates are not configured.
@@ -50,6 +53,7 @@ Public prebuilt installers are not published yet. Build from source using the st
 - Microsoft C++ Build Tools with the **Desktop development with C++** workload and a Windows SDK.
 - Node.js **22.12 or newer in the 22.x series**, including npm.
 - Microsoft Edge WebView2 Runtime for the desktop interface.
+- Python **3.12 or newer** for building the bundled torrent worker. Python is bundled with the finished app; end users do not need to install it.
 - Internet access for the initial dependency and media-tool builds. The media script downloads pinned source/compiler archives and verifies their hashes.
 
 ### Build and launch
@@ -89,7 +93,7 @@ The installer is written under `apps/desktop/src-tauri/target/release/bundle/nsi
 
 Closing the window hides the interface to the tray while the worker continues. **About this preview → Exit interface — keep downloads running** exits the interface without stopping its worker. Reopen IDMXL to see progress or completed history. Downloaded applications are never launched automatically.
 
-History and settings are stored in `%LOCALAPPDATA%\IDMXL`. Downloaded files stay in the destinations you choose. Canceling a native engine job preserves its partial files. Browser transfers follow the browser's cancellation and partial-file behavior.
+History and settings are stored in `%LOCALAPPDATA%\IDMXL`. Downloaded files stay in the destinations you choose. Canceling a native engine job preserves its partial files. Torrents preserve their pieces and verify them when recovering from an unclean shutdown.
 
 The app offers **Change default folder**, per-file location changes for paused native file jobs, **Retry now**, confirmed **Delete file from PC**, and confirmed **Pause all / Cancel all / Delete all files**. Native browser captures ask where to save before starting; a folder becomes the suggested default after four confirmed uses. See the [download controls guide](docs/DOWNLOAD-CONTROLS.md) for cancellation, file-deletion and browser-transfer details.
 
@@ -99,16 +103,15 @@ Load `extensions/edge` as an unpacked extension in an Edge or Chrome development
 
 Right-click a public file link and choose **Queue link in IDMXL**. The application must be built or installed and registered with that exact extension ID. Run registration from a normal Windows PowerShell session. Restart the browser fully after setup if its connection check cannot find the host.
 
-For automatic capture, open extension **0.1.5**, choose **Enable automatic capture** and approve the browser permission request if shown. Already-enabled all-sites capture enables browser-assisted compatibility after reloading the extension and updating the matching app. Previously saved folder-only rules retain their limited scope until you enable all-sites capture.
+For automatic capture, open extension **0.2.0**, choose **Enable automatic capture** and approve its existing download/site permissions if needed. Reload an already loaded extension after updating its files.
 
-There are two transfer modes:
+Files over **1,000,000 bytes** use a two-phase native handoff. IDMXL asks for the destination; Cancel or closing that chooser cancels the download. After preparation succeeds, Chrome's transfer is canceled and its history entry is removed before the IDMXL worker starts. The desktop opens automatically. There is no extra “Download captured” receipt window. App and extension controls operate the independent native transfer.
 
-- **Native IDMXL download:** compatible public HTTP(S) files strictly larger than **1,000,000 bytes** are verified independently before Chrome's transfer is canceled. IDMXL opens and starts its queue automatically; native schedules and limits still apply. Confirm the location in IDMXL’s Save As dialog before it starts. Cancel or closing the chooser cancels the download. Chrome’s filename decision waits while the native handoff is resolved.
-- **Browser transfer:** small files, unknown sizes and downloads that require the original browser session stay on that original transfer. IDMXL opens and displays progress and controls. Keep Chrome/Edge open and **choose Save** if it shows Save As. Native connection limits, speed caps, schedules and SHA-256 verification do not apply. Resume depends on browser support; security decisions remain in the browser.
+Observed GET request cookies and permitted headers can be used on the **same original origin only**, protected with Windows DPAPI on disk. Servers without strong ETags can use a sequential transfer; safely identified range transfers retain acceleration and verified resume. Chrome-only POST bodies, blob/data URLs, incognito downloads, safety approvals and downloads that cannot be verified for native replay remain in Chrome, without being presented as successful captures.
 
-No cookies, POST bodies or session URLs are copied into the browser-transfer metadata protocol. Incognito downloads are excluded. This covers ordinary downloads exposed by the browser's downloads API; it cannot make blocked downloads, arbitrary media players or other applications' transfers downloadable. See **Capture details** for connection issues and the [browser guide](docs/BROWSER-HANDOFF.md) for mode-specific behavior.
+Torrent files are captured at any size. Magnet clicks and torrent context-menu links open IDMXL's file/folder review. The separate torrent worker starts payload downloads only after confirmation. See [torrent controls](docs/TORRENTS.md) and [capture qualification](docs/CAPTURE-TORRENTS.md).
 
-Actual Edge connection/explicit handoff/completed-file hash and Chrome native automatic opening/start have passed on the development PC. The user confirmed browser-assisted 0.1.4 capture and Pause/Resume with an original generated Chrome download. Completion/hash of that browser transfer remains unverified. Broader browser/media-popup testing and browser-store publication remain open.
+The current isolated Chromium tests exercise real native messaging, strong/no-ETag/session-cookie/unknown-size captures, independent extension controls and cancellation. They use a separate test profile and generated payloads; they do not inspect the user's browsing history. Wider real-site and browser-store qualification remains open.
 
 ## Supported scope and limitations
 
@@ -118,12 +121,11 @@ Actual Edge connection/explicit handoff/completed-file hash and Chrome native au
 - Code signing and production update hosting are not configured. Use manual updates; the included updater needs a release authority before deployment. See [update setup](docs/UPDATES.md).
 - Clean-machine installation/upgrade, wider browser/workflow coverage, accessibility and binary distribution review remain open. Connection tuning does not guarantee a speed advantage over other downloaders.
 
-The current runtime passed **219 checks** (68 Rust, 76 ordinary Python, one
+The previously qualified speed runtime passed **219 checks** (68 Rust, 76 ordinary Python, one
 separately enabled >4 GiB resource test and 74 Node), plus native lint, frontend
 and installer builds. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39779365305)
 passed. A separate **21.47 GB** pause/process-loss/resume test preserved saved
-data and passed independent full-file verification. The matching update passed
-isolated history/migration checks; normal-session installation is not claimed.
+data and passed independent full-file verification. The matching speed update passed isolated history/migration checks and was installed on the development PC on 24 October 2026. Current 0.2.0 results are recorded separately in [capture/torrent qualification](docs/CAPTURE-TORRENTS.md).
 
 Earlier browser controls were checked in the user's real Chrome session on
 extension 0.1.5: Save/Cancel, live progress, Pause/Resume/Cancel and no separate

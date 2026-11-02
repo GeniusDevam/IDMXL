@@ -1821,7 +1821,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "idmxl-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fs2",
  "idmxl-engine",
@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "idmxl-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

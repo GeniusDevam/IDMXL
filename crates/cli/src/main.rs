@@ -80,6 +80,8 @@ enum Command {
     Cancel { id: String },
     /// Show the capabilities of the actually linked transport.
     Doctor,
+    /// BitTorrent worker request as JSON on stdin. Sources and tokens stay off the command line.
+    Torrent,
     /// Queue up to 1,000 explicit file jobs from a JSON array on stdin. Never starts them.
     Batch,
     /// Add a plain link list with automatic filenames and optional category folders from JSON stdin.
@@ -153,6 +155,10 @@ fn run() -> Result<()> {
     }
     let store = Store::open(&directory)?;
     let value = match cli.command {
+        Command::Torrent => {
+            let request: serde_json::Value = read_json(2 * 1024 * 1024)?;
+            idmxl_engine::torrent::request(&directory, &std::env::current_exe()?, &request)?
+        }
         Command::Add {
             url,
             url_stdin,

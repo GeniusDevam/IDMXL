@@ -10,7 +10,7 @@ async function fixture(options={}) {
     if (r.kind==='prepare') {if(options.cancelLocation)return{accepted:false,error:'user_cancelled'};if(options.prepareFails)throw new Error();phase='ready';if(options.disableDuringPrepare)journal.captureConfig.enabled=false;if(options.dangerDuringPrepare)download.danger='uncommon';if(options.urlChangesDuringPrepare)download.finalUrl+='?changed=1';}
     if (r.kind==='abort')phase='aborted';
     if (r.kind==='commit') {phase='committed';if(options.loseCommitReply&&!lost){lost=true;throw new Error();}}
-    return {version:2,accepted:true,request_id:r.request_id,job_id:'job',phase,expires:100000,activation:options.activation};
+    return {version:r.version,accepted:true,request_id:r.request_id,job_id:'job',phase,expires:100000,activation:options.activation};
   }},downloads:{search:async()=>[structuredClone(download)],pause:async()=>{calls.push('pause');download.paused=true;if(options.completesOnPause)download.state='complete';},resume:async()=>{calls.push('resume');download.paused=false;},cancel:async()=>{calls.push('cancel');if(options.cancelFails)throw new Error();download.state='interrupted';download.error='USER_CANCELED';}}};
   const capture=createCapture(api,()=>1000,()=> '0f417bf1-a960-462a-a1af-62d427ee655d',options.browser);
   function observe(headers=[],responseHeaders=null,requestId='request') {capture.before({requestId,url:download.finalUrl,method:'GET',requestHeaders:headers});capture.headers({requestId,url:download.finalUrl,statusCode:200,responseHeaders:responseHeaders||[{name:'ETag',value:'"one"'},{name:'Content-Length',value:String(download.totalBytes)}]});}
@@ -23,11 +23,11 @@ function assisted() {
 }
 const settleBrowser=async(capture,delay=25)=>{await new Promise(resolve=>setTimeout(resolve,delay));await capture.idle();};
 
-test('weakly identified downloads use browser assistance without cancellation or replay',async()=>{
-  const browser=assisted(),f=await fixture({browser});f.observe([],[{name:'ETag',value:'W/"weak"'},{name:'Content-Length',value:String(f.download.totalBytes)}]);
-  await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(browser.tracked.length,1);assert.deepEqual(f.calls,[]);assert.equal(f.download.state,'in_progress');
-  f.observe();await f.capture.changed({id:9,totalBytes:{current:f.download.totalBytes}});assert.equal(browser.tracked.length,1);assert(browser.updates.length>=1);assert(browser.updates.every(item=>item.id===f.download.id));assert.deepEqual(f.calls,[]);
+test('weakly identified downloads use the native sequential-capable handoff',async()=>{
+ const browser=assisted(),f=await fixture({browser});f.observe([],[{name:'ETag',value:'W/"weak"'},{name:'Content-Length',value:String(f.download.totalBytes)}]);
+ await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(f.phase,'committed');assert.equal(browser.tracked.length,0);assert.equal(f.download.error,'USER_CANCELED');
 });
+
 test('successful native takeover never creates a duplicate browser transfer',async()=>{
   const browser=assisted(),f=await fixture({browser});f.observe();await f.capture.created(f.download);await settleBrowser(f.capture);assert.equal(f.phase,'committed');assert.equal(browser.tracked.length,0);
 });
@@ -58,16 +58,14 @@ test('prepare, confirmed pause, cancellation and durable ownership occur in orde
   assert.doesNotMatch(JSON.stringify(f.journal),/https:\/\/example.org\/files\/file|Cookie/);
   await f.capture.created(f.download);assert.equal(f.calls.filter(c=>c==='commit').length,1);
 });
-test('confirmation distinguishes automatic startup from an older or unavailable app',async()=>{
-  for(const activation of [undefined,{queue_started:true,desktop_requested:true},{queue_started:false,desktop_requested:true}]) {
-    const f=await fixture({activation});f.api.windows={create:async()=>({id:1})};f.api.runtime.getURL=p=>p;
-    f.observe();await f.capture.created(f.download);
-    assert.equal(f.journal.captureConfirmation.automatic,activation?.queue_started===true);
-    assert.equal(f.journal.captureConfirmation.desktop_requested,activation?.desktop_requested===true);
-    assert.equal(f.journal.lastCaptureAttempt.code,activation?.queue_started?'captured':'captured_manual_start');
-    assert.equal(f.phase,'committed');assert.equal(f.calls.filter(c=>c==='cancel').length,1);
-  }
+test('startup acknowledgement is reported in extension status without any receipt window',async()=>{
+ for(const activation of [undefined,{queue_started:true,desktop_requested:true},{queue_started:false,desktop_requested:true}]) {
+ const f=await fixture({activation});let windows=0;f.api.windows={create:async()=>{windows++;}};
+ f.observe();await f.capture.created(f.download);assert.equal(windows,0);assert.equal(f.journal.captureConfirmation,undefined);
+ assert.equal(f.journal.lastCaptureAttempt.code,activation?.queue_started?'captured':'captured_manual_start');assert.equal(f.phase,'committed');
+ }
 });
+
 test('failed preparation and failed cancellation resume the browser without committing',async()=>{
   for(const option of [{prepareFails:true},{cancelFails:true}]){
     const f=await fixture(option);f.observe();await f.capture.created(f.download);
@@ -93,7 +91,7 @@ test('private, credentialed and unsupported downloads stay untouched',async()=>{
   for(const change of [{incognito:true},{danger:'uncommon'},{finalUrl:'blob:https://example.org/id'},{finalUrl:'https://user:password@example.org/file'},{totalBytes:500},{byExtensionId:'other'},{paused:true}]){
     const f=await fixture();f.observe();Object.assign(f.download,change);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
   }
-  for(const header of ['Authorization','Proxy-Authorization','Range']) {const f=await fixture();f.observe([{name:header,value:'private'}]);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);}
+  for(const header of ['Proxy-Authorization','Range']) {const f=await fixture();f.observe([{name:header,value:'private'}]);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);}
   const f=await fixture();await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
 });
 
@@ -117,13 +115,11 @@ test('redirected final URLs and reusable query links are handed off without pers
   }
 });
 
-test('late size and filename updates are considered; pause-only updates are ignored',async()=>{
-  const f=await fixture();f.observe();f.download.totalBytes=-1;f.download.filename='';
-  await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
-  f.download.totalBytes=2097152;await f.capture.changed({id:9,totalBytes:{current:2097152}});assert.deepEqual(f.calls,[]);
-  f.download.filename='C:\\Downloads\\late.zip';await f.capture.changed({id:9,filename:{current:f.download.filename}});
-  assert.equal(f.phase,'committed');assert.equal(f.messages.find(r=>r.kind==='prepare').filename,'late.zip');
-  const count=f.calls.length;await f.capture.changed({id:9,paused:{current:false}});assert.equal(f.calls.length,count);
+test('unknown size and empty early filename do not release the Chrome chooser',async()=>{
+ const f=await fixture();f.download.totalBytes=-1;f.download.filename='';f.observe([],[{name:'Content-Type',value:'application/octet-stream'}]);
+ let suggested=0;assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),true);
+ await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.phase,'committed');assert.equal(suggested,0);assert.equal(f.messages.find(r=>r.kind==='prepare').filename,'file.bin');
 });
 
 test('disabled capture and legacy folder boundaries remain respected',async()=>{
@@ -148,17 +144,16 @@ test('turning capture off, changed danger or a changed source during preparation
   }
 });
 
-test('unverified, weak, compressed, duplicate or mismatching response identities are not captured',async()=>{
-  for(const headers of [
-    [{name:'Content-Length',value:'2097152'}],
-    [{name:'ETag',value:'W/"weak"'},{name:'Content-Length',value:'2097152'}],
-    [{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097152'},{name:'Content-Encoding',value:'gzip'}],
-    [{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097152'},{name:'Content-Encoding',binaryValue:[1]}],
-    [{name:'ETag',value:'"one"'},{name:'ETag',value:'"two"'},{name:'Content-Length',value:'2097152'}],
-    [{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097153'}],
-  ]) {
-    const f=await fixture();f.observe([],headers);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);
-  }
+test('missing or weak ETags allow native preparation; encoded, duplicate and mismatching responses do not',async()=>{
+ for(const headers of [[{name:'Content-Length',value:'2097152'}],[{name:'ETag',value:'W/"weak"'},{name:'Content-Length',value:'2097152'}]]) {
+ const f=await fixture();f.observe([],headers);await f.capture.created(f.download);assert.equal(f.phase,'committed');
+ }
+ for(const headers of [
+ [{name:'Content-Length',value:'2097152'},{name:'Content-Encoding',value:'gzip'}],
+ [{name:'Content-Length',value:'2097152'},{name:'Content-Encoding',binaryValue:[1]}],
+ [{name:'ETag',value:'"one"'},{name:'ETag',value:'"two"'},{name:'Content-Length',value:'2097152'}],
+ [{name:'Content-Length',value:'2097153'}],
+ ]) {const f=await fixture();f.observe([],headers);await f.capture.created(f.download);assert.deepEqual(f.calls,[]);}
 });
 
 test('conflicting observations of the same URL cannot cancel a browser download',async()=>{
@@ -181,14 +176,12 @@ test('concurrent creation and change events commit only once',async()=>{
   assert.equal(f.calls.filter(c=>c==='cancel').length,1);assert.equal(f.calls.filter(c=>c==='commit').length,1);
 });
 
-test('expired preparation after browser cancellation renews the same final URL before commit',async()=>{
-  const f=await fixture();f.download.finalUrl+='?token=secret';f.observe();await f.capture.created(f.download);
-  const record=Object.values(f.journal.captureRecords)[0];record.phase='cancel_requested';
-  const send=f.api.runtime.sendNativeMessage;let expire=true;
-  f.api.runtime.sendNativeMessage=async(host,r)=>{const reply=await send(host,r);if(r.kind==='status'&&expire){reply.phase='expired';expire=false;}return reply;};
-  await f.capture.recover();assert.equal(f.phase,'committed');
-  assert.equal(f.messages.filter(r=>r.kind==='prepare').length,2);assert.equal(f.messages.at(-2).url,f.download.finalUrl);
-  assert.equal(f.calls.filter(c=>c==='cancel').length,1);
+test('expired session capture after cancellation needs attention rather than replaying lost credentials',async()=>{
+ const f=await fixture();f.observe();await f.capture.created(f.download);
+ const record=Object.values(f.journal.captureRecords)[0];record.phase='cancel_requested';
+ const send=f.api.runtime.sendNativeMessage;f.api.runtime.sendNativeMessage=async(host,r)=>{const reply=await send(host,r);if(r.kind==='status')reply.phase='expired';return reply;};
+ await f.capture.recover();assert.equal(record.phase,'cancel_requested');assert.equal(Object.values(f.journal.captureRecords)[0].phase,'attention');
+ assert.equal(f.messages.filter(r=>r.kind==='prepare').length,1);assert.equal(f.calls.filter(c=>c==='cancel').length,1);
 });
 
 test('download listeners register before asynchronous recovery on a cold worker start',async()=>{
@@ -229,57 +222,43 @@ test('URL fragments never enter native requests and leading-zero lengths compare
   assert.equal(f.messages.find(r=>r.kind==='prepare').total,'2097152');
 });
 
-test('skipped downloads expose a bounded reason without credentials or source addresses',async()=>{
-  const f=await fixture();f.download.finalUrl+='?token=private-secret';
-  f.observe([],[{name:'Content-Length',value:'2097152'}]);await f.capture.created(f.download);
-  assert.equal(f.journal.lastCaptureAttempt.code,'strong_identity_missing');
-  assert.doesNotMatch(JSON.stringify(f.journal),/private-secret|example\.org|https:/);
+test('unsupported downloads expose a bounded reason without credentials or source addresses',async()=>{
+ const f=await fixture();f.download.finalUrl='blob:https://example.org/private-secret';await f.capture.created(f.download);
+ assert.equal(f.journal.lastCaptureAttempt.code,'browser_only_source');assert.doesNotMatch(JSON.stringify(f.journal),/private-secret|example\.org|https:/);
 });
 
-test('successful capture opens a confirmation once; popup failure cannot undo ownership',async()=>{
-  for(const fail of [false,true]) {
-    const f=await fixture();let windows=0;f.api.runtime.getURL=p=>'chrome-extension://test/'+p;
-    f.api.windows={create:async info=>{windows++;assert.equal(info.type,'popup');assert.match(info.url,/capture-status\.html$/);if(fail)throw new Error('window failure');return {id:12};}};
-    f.observe();await f.capture.created(f.download);await f.capture.recover();
-    assert.equal(f.phase,'committed');assert.equal(windows,1);assert.equal(f.journal.captureConfirmation.job_id,'job');
-    assert.equal(f.journal.captureNoticeError,fail?'confirmation_unavailable':null);
-    assert.equal(f.calls.filter(c=>c==='cancel').length,1);
-  }
+test('successful capture erases the canceled Chrome item and never creates a receipt popup',async()=>{
+ const f=await fixture();let erased=0,windows=0;
+ f.api.downloads.erase=async filter=>{assert.equal(f.phase,'committed');assert.equal(filter.id,9);erased++;};f.api.windows={create:async()=>{windows++;}};
+ f.observe();await f.capture.created(f.download);await f.capture.recover();assert.equal(erased,1);assert.equal(windows,0);assert.equal(f.phase,'committed');
 });
 
-test('capture confirmations reuse their own window and recover when that window was closed',async()=>{
-  const {showCaptureConfirmation}=await import('./capture.js');let created=0,focused=0;const saved={captureNoticeWindow:8};
-  const api={runtime:{getURL:p=>'chrome-extension://test/'+p},storage:{session:{get:async()=>saved,set:async value=>Object.assign(saved,value)}},windows:{update:async id=>{assert.equal(id,8);focused++;},create:async()=>{created++;return {id:9};}}};
-  await showCaptureConfirmation(api);assert.equal(focused,1);assert.equal(created,0);
-  api.windows.update=async()=>{throw new Error('closed');};await showCaptureConfirmation(api);
-  assert.equal(created,1);assert.equal(saved.captureNoticeWindow,9);
+test('legacy receipt helper is inert',async()=>{
+ const {showCaptureConfirmation}=await import('./capture.js');let created=0;
+ await showCaptureConfirmation({windows:{create:async()=>{created++;}}});assert.equal(created,0);
 });
 
-test('public downloads can qualify despite cookies, but no cookie values leave the observer',async()=>{
-  const f=await fixture();f.observe([{name:'Cookie',value:'private-cookie-value'}],[{name:'ETag',value:'"one"'},{name:'Content-Length',value:'2097152'},{name:'Set-Cookie',value:'private-response-cookie'}]);
-  await f.capture.created(f.download);assert.equal(f.phase,'committed');
-  assert.doesNotMatch(JSON.stringify(f.messages)+JSON.stringify(f.journal),/private-cookie-value|private-response-cookie|Cookie/);
+test('request cookies reach only native preparation and never extension storage; response cookies are excluded',async()=>{
+ const f=await fixture();f.observe([{name:'Cookie',value:'private-cookie-value'}],[{name:'Content-Length',value:'2097152'},{name:'Set-Cookie',value:'private-response-cookie'}]);
+ await f.capture.created(f.download);assert.equal(f.phase,'committed');
+ assert.deepEqual(f.messages.find(r=>r.kind==='prepare').context.headers,[['cookie','private-cookie-value']]);
+ assert.doesNotMatch(JSON.stringify(f.journal),/private-cookie-value|private-response-cookie/);assert.doesNotMatch(JSON.stringify(f.messages),/private-response-cookie/);
 });
 
-test('a cookie-dependent file rejected by credential-free native verification resumes in Chrome',async()=>{
-  const f=await fixture({prepareFails:true});f.observe([{name:'Cookie',value:'private-session'}]);
-  await f.capture.created(f.download);assert.equal(f.download.state,'in_progress');assert.equal(f.download.paused,false);
-  assert(!f.calls.includes('cancel'));assert(!f.calls.includes('commit'));
-  assert.equal(f.journal.lastCaptureAttempt.code,'native_takeover_failed');
-  assert.doesNotMatch(JSON.stringify(f.messages)+JSON.stringify(f.journal),/private-session/);
+test('failed session-aware native verification releases the browser and stores no credentials',async()=>{
+ const f=await fixture({prepareFails:true});f.observe([{name:'Cookie',value:'private-session'}]);await f.capture.created(f.download);
+ assert.equal(f.download.state,'in_progress');assert.equal(f.download.paused,false);assert(!f.calls.includes('cancel'));assert(!f.calls.includes('commit'));
+ assert.equal(f.journal.lastCaptureAttempt.code,'native_takeover_failed');assert.doesNotMatch(JSON.stringify(f.journal),/private-session/);
 });
 
-test('the early filename event considers fast downloads and releases its default-name callback once',async()=>{
-  for(const fail of [false,true]) {
-    const f=await fixture({prepareFails:fail});f.observe();f.download.filename='';await f.capture.created(f.download);
-    let suggested=0;assert.equal(f.capture.determiningFilename({...f.download,filename:'C:\\Downloads\\early.zip'},()=>suggested++),true);
-    assert.equal(suggested,0);
-    await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
-    assert.equal(suggested,1);assert.equal(f.phase,fail?'aborted':'committed');
-    assert.equal(f.messages.find(r=>r.kind==='prepare').filename,'early.zip');
-  }
-  const f=await fixture();f.download.totalBytes=100;let suggested=0;
-  assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),false);assert.equal(suggested,1);assert.deepEqual(f.calls,[]);
+test('the Chrome filename callback is released only on fallback, never after native commit or user cancellation',async()=>{
+ for(const options of [{},{prepareFails:true},{cancelLocation:true}]) {
+ const f=await fixture(options);f.observe();let suggested=0;
+ assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),true);assert.equal(suggested,0);
+ await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));assert.equal(suggested,options.prepareFails?1:0);
+ assert.equal(f.phase,options.prepareFails?'aborted':options.cancelLocation?'missing':'committed');
+ }
+ const f=await fixture();f.download.totalBytes=100;let suggested=0;assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),false);assert.equal(suggested,1);
 });
 
 test('a stopped capture controller cannot accept delayed events after a worker refresh',async()=>{
@@ -294,6 +273,32 @@ test('canceling the location prompt cancels Chrome without commit or browser fal
   assert.equal(f.download.error,'USER_CANCELED');assert(!f.calls.includes('commit'));assert(!f.calls.includes('resume'));assert.equal(browser.tracked.length,0);
   assert.equal(Object.values(f.journal.captureRecords)[0].phase,'user_canceled');assert.equal(f.messages.find(r=>r.kind==='prepare').confirm_destination,true);
   await f.capture.recover();assert(!f.calls.includes('resume'));
+});
+
+test('filename determination remains held when onCreated has already paused Chrome',async()=>{
+ const f=await fixture();f.observe();let release;
+ const held=new Promise(resolve=>release=resolve),send=f.api.runtime.sendNativeMessage;
+ f.api.runtime.sendNativeMessage=async(host,message)=>{if(message.kind==='prepare')await held;return send(host,message);};
+ const started=f.capture.created(f.download);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.download.paused,true);let suggested=0;
+ assert.equal(f.capture.determiningFilename({...f.download},()=>suggested++),true);
+ release();await started;await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.phase,'committed');assert.equal(suggested,0);
+});
+
+test('zero early byte count uses response length and cannot open Chrome Save As',async()=>{
+ const f=await fixture();f.observe();f.download.totalBytes=0;f.download.filename='';let suggested=0;
+ assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),true);
+ await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.phase,'committed');assert.equal(suggested,0);assert.equal(f.messages.find(r=>r.kind==='prepare').total,'2097152');
+});
+
+test('small torrent files open native torrent review instead of becoming Chrome downloads',async()=>{
+ const f=await fixture();f.download.filename='C:\\Downloads\\fixture.torrent';f.download.totalBytes=1024;f.observe();
+ let suggested=0;assert.equal(f.capture.determiningFilename(f.download,()=>suggested++),true);
+ await f.capture.idle();await new Promise(resolve=>setImmediate(resolve));
+ assert(f.messages.some(r=>r.kind==='torrent_inspect'&&r.version===7));
+ assert.equal(Object.values(f.journal.captureRecords)[0].phase,'committed');assert.equal(f.download.error,'USER_CANCELED');assert.equal(suggested,0);
 });
 
 test('a lost location-cancel response is recovered without resuming Chrome',async()=>{

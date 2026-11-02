@@ -20,7 +20,7 @@ pub struct Store {
     pub directory: PathBuf,
     _maintenance: std::fs::File,
 }
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 impl Store {
     /// Acquire writer ownership before reading a value that this transaction
@@ -64,7 +64,7 @@ impl Store {
         if version > SCHEMA_VERSION {
             bail!("database_version_unsupported");
         }
-        let idle_locks = if version > 0 && version < 7 {
+        let idle_locks = if version > 0 && version < SCHEMA_VERSION {
             let mut locks = Vec::new();
             for name in ["engine.lock", "scheduler.lock"] {
                 let lock = std::fs::OpenOptions::new()
@@ -169,6 +169,16 @@ impl Store {
             } else {
                 db.execute_batch(sql)?;
             }
+        }
+        if version < 8 {
+            if version == 7 {
+                let backup = directory.join(format!("jobs-v7-{}.sqlite", Uuid::new_v4()));
+                db.execute(
+                    "VACUUM INTO ?1",
+                    [backup.to_str().context("non_unicode_path")?],
+                )?;
+            }
+            db.execute_batch(include_str!("../migrations/008_request_context.sql"))?;
         }
         drop(idle_locks);
         let progress_db = Connection::open(directory.join("jobs.db"))?;
@@ -864,7 +874,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         let path = std::fs::read_dir(root.path())
             .unwrap()
@@ -918,7 +928,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         let backup = std::fs::read_dir(root.path())
             .unwrap()

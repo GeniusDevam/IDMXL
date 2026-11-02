@@ -322,6 +322,21 @@ impl Store {
 /// A native Save As dialog. It runs before a browser handoff can commit or start.
 #[cfg(windows)]
 pub fn choose_download_path(default: &Path) -> Result<Option<PathBuf>> {
+    #[cfg(feature = "fault-injection")]
+    if let Some(fixture) = std::env::var_os("IDMXL_TEST_LOCATION_CHOICE") {
+        let data: serde_json::Value = serde_json::from_slice(&std::fs::read(fixture)?)?;
+        if data["cancel"] == true {
+            return Ok(None);
+        }
+        let directory = PathBuf::from(
+            data["directory"]
+                .as_str()
+                .context("invalid_test_directory")?,
+        );
+        return Ok(Some(platform::destination(
+            &directory.join(default.file_name().context("invalid_destination")?),
+        )?));
+    }
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::UI::Controls::Dialogs::{
         CommDlgExtendedError, GetSaveFileNameW, OFN_EXPLORER, OFN_HIDEREADONLY, OFN_NOCHANGEDIR,

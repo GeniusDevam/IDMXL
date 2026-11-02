@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "IDMXL — Downloads",
-  "version": "0.1.6",
-  "description": "Manage downloads in IDMXL. Compatible files use its engine; browser-assisted mode tracks other browser downloads.",
+  "version": "0.2.0",
+  "description": "Download with IDMXL, with one save location and independent native transfers. Includes torrent handoff.",
   "permissions": [
     "contextMenus",
     "nativeMessaging",

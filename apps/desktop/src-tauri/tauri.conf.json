@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "IDMXL",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "dev.idmxl.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -17,7 +17,7 @@
         "height": 850,
         "minWidth": 750,
         "minHeight": 600,
-        "dragDropEnabled": false
+        "dragDropEnabled": true
       }
     ],
     "security": {
@@ -37,12 +37,15 @@
     ],
     "resources": {
       "media/": "media/",
+      "torrent/": "torrent/",
       "../../../extensions/edge/": "browser-extension/",
       "../../../scripts/browser-host.ps1": "browser-host.ps1",
+      "../../../scripts/register-torrents.ps1": "register-torrents.ps1",
       "../../../docs/BROWSER-HANDOFF.md": "BROWSER-HANDOFF.md"
     },
     "windows": {
       "nsis": {
+        "installerHooks": "installer-hooks.nsh",
         "installMode": "currentUser",
         "languages": [
           "English"

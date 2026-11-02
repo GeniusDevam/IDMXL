@@ -41,6 +41,24 @@ async fn list_jobs() -> Result<Vec<JobView>, String> {
 }
 
 #[tauri::command]
+async fn torrent_request(request: serde_json::Value) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = open()?;
+        let result = idmxl_engine::torrent::request(&store.directory, &engine_binary()?, &request)
+            .map_err(|e| e.to_string())?;
+        if request["kind"] == "confirm"
+            && let (Some(id), Some(folder)) = (request["id"].as_str(), request["folder"].as_str())
+        {
+            let _ =
+                store.remember_destination(id, &std::path::Path::new(folder).join("torrent-files"));
+        }
+        Ok(result)
+    })
+    .await
+    .map_err(|_| "torrent_operation_failed".to_owned())?
+}
+
+#[tauri::command]
 async fn add_job(
     url: String,
     destination: String,
@@ -487,6 +505,19 @@ fn watch_application_events(app: tauri::AppHandle) {
 }
 
 fn main() {
+    // Windows file/protocol associations only forward a source, never commands.
+    for source in std::env::args()
+        .skip(1)
+        .filter(|s| s.starts_with("magnet:?") || s.to_ascii_lowercase().ends_with(".torrent"))
+    {
+        if let Ok(engine) = engine_binary() {
+            let _ = idmxl_engine::torrent::request(
+                &directory(),
+                &engine,
+                &serde_json::json!({"kind":"inspect","source":source}),
+            );
+        }
+    }
     let Ok(store) = open() else {
         return;
     };
@@ -546,6 +577,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_jobs,
+            torrent_request,
             add_job,
             start_job,
             control_job,
