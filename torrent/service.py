@@ -301,6 +301,7 @@ class Worker:
         self.priorities(job, priorities)
         job["folder"] = str(folder)
         job["confirmed"] = True
+        job["recheck_after_move"] = bool(request.get("reuse_existing",False))
         job["intent"] = "running" if request.get("start", True) else "paused"
         self.persist(job)
         h = self.handles[job["id"]]
@@ -558,6 +559,11 @@ class Worker:
                 self.persist(job)
                 if job["confirmed"]:
                     h.unset_flags(lt.torrent_flags.upload_mode)
+                if job.pop("recheck_after_move",False):
+                    self.checking.add(jid)
+                    self.checking_started.discard(jid)
+                    h.force_recheck()
+                    self.persist(job)
                 if job["intent"] == "running":
                     h.resume()
                 self.save_resume(job)

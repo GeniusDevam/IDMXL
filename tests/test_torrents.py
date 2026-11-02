@@ -213,6 +213,16 @@ class Torrents(unittest.TestCase):
         self.assertEqual(self.worker.view(restored)["state"],"completed")
         self.assertEqual(hashlib.sha256((self.out/path.name).read_bytes()).hexdigest(),hashlib.sha256(path.read_bytes()).hexdigest())
 
+    def test_explicit_existing_file_reuse_checks_bytes_without_downloading_again(self):
+        torrent,path=self.generate("hybrid",size=4*1024*1024)
+        shutil.copyfile(path,self.out/path.name)
+        self.worker.settings["seed_ratio"]=0
+        view=self.worker.inspect(str(torrent));job=self.worker.jobs[view["id"]]
+        self.worker.confirm(job,dict(folder=str(self.out),reuse_existing=True))
+        self.wait(lambda:self.worker.view(job)["state"]=="completed")
+        self.assertEqual(self.worker.view(job)["downloaded_bytes"],"0")
+        self.assertEqual(hashlib.sha256((self.out/path.name).read_bytes()).hexdigest(),hashlib.sha256(path.read_bytes()).hexdigest())
+
     def test_unclean_restart_rechecks_and_repairs_corrupted_pieces(self):
         torrent,path=self.generate("hybrid",size=16*1024*1024)
         self.start_seed(torrent)
