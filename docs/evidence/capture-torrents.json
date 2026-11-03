@@ -6,9 +6,9 @@
   "checks": {
     "rust": 72,
     "http_tls_media": 76,
-    "torrent": 12,
+    "torrent": 13,
     "javascript": 78,
-    "total_unique": 238,
+    "total_unique": 239,
     "separate_browser_scenarios": 5
   },
   "results": {
@@ -19,7 +19,8 @@
     "independent_hashes": "passed",
     "normal_installed_files_verified": 109,
     "native_ui": "Add Torrent and Settings rendered; Cancel/Escape worked in isolated profile",
-    "chrome_reload": "not completed; Computer Use stopped because it could not confidently identify Chrome URL"
+    "chrome_reload": "not completed; Computer Use stopped because it could not confidently identify Chrome URL",
+    "existing_file_reuse": "passed; full check completed with zero payload download"
   },
   "limits": [
     "Browser-only POST/blob/data, incognito and unverified transfers remain in Chrome",
@@ -35,15 +36,25 @@
     },
     "idmxl-desktop.exe": {
       "bytes": 14445568,
-      "sha256": "1cc6735f275c13cff86e7acbbfa9378188c296f926b2ea22d5d5784bddafdf6b"
+      "sha256": "b0e490b2f952a691e434f0abf0dfed8bd5aa205963435db938101eaccda25a84"
     },
     "IDMXL_0.2.0_x64-setup.exe": {
-      "bytes": 31406184,
-      "sha256": "e7f547d8c0816671ac77183c55e083db1e312747e0c844516a10981c0117f537"
+      "bytes": 31404483,
+      "sha256": "2a39adf970286d2543846b497e57188402762541c554088ba7d1abcffc853303"
     },
     "torrent/idmxl-torrent.exe": {
-      "bytes": 1945873,
-      "sha256": "df41111f1781b9951992e4da0dcf38680ee2fd749e3f51937f9468f19abe0b57"
+      "bytes": 1946011,
+      "sha256": "5337ab8560118fd9d5efbe165a089ef899aa021baf9d3c056970b376d638e695"
     }
-  }
+  },
+  "runtime_commit": "fb595286ba42b15f4a285bc864e714320840466a",
+  "ci": {
+    "runtime_run": "https://github.com/GeniusDevam/IDMXL/actions/runs/41474175041",
+    "run_id": 41474175041,
+    "status": "completed",
+    "conclusion": "success",
+    "runtime_commit": "fb595286ba42b15f4a285bc864e714320840466a",
+    "confirmed_date": "2026-11-03"
+  },
+  "installation_reverified_date": "2026-11-03"
 }

@@ -1,6 +1,6 @@
 # IDMXL progress
 
-Updated 2 November 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 3 November 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
 Current 0.2.0 checkpoint: native capture now owns captured GET transfers (with
 origin-scoped protected request context where required), suppresses its receipt
@@ -16,7 +16,9 @@ creation/export and confirmed deletion. Metadata is held before folder approval;
 resume records are protected and unclean starts recheck pieces. Desktop paste,
 file drop, browser magnet clicks and Windows handler registration are included.
 
-**238 unique local checks pass**, plus five isolated-browser scenarios and two
+**239 unique local checks pass**, and Windows CI **41474175041** passes for runtime
+`fb595286ba42b15f4a285bc864e714320840466a`. Installed files were reverified on
+3 November. There are also five isolated-browser scenarios and two
 additional uTP recovery confirmations. Root/native lint and the frontend/NSIS
 build pass. The normal installation was updated; all **109 runtime files** matched
 its staged package. No profile files were deleted. Computer Use checked Add

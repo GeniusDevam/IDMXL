@@ -25,4 +25,6 @@ The user's clarification window was the first ten minutes. Routine choices will
 be made autonomously; torrent bandwidth defaults are unlimited download and
 conservative upload, adjustable by the user. No unrelated downloads are removed.
 
-Completed: implementation, 238 checks, isolated browser/native UI checks, packaged TCP/uTP crash recovery, NSIS build, installation and all 109 installed-file verifications. Chrome Reload remains a user action after the Computer Use URL-policy stop. Final qualification: CAPTURE-TORRENTS.md.
+Completed: implementation, 239 checks, isolated browser/native UI checks, packaged TCP/uTP crash recovery, NSIS build, installation and all 109 installed-file verifications. Chrome Reload remains a user action after the Computer Use URL-policy stop. Final qualification: CAPTURE-TORRENTS.md.
+
+Finalized 3 November: Windows CI 41474175041 passed for fb595286ba42b15f4a285bc864e714320840466a. All 109 installed-file hashes reverified. Chrome Reload remains manual.

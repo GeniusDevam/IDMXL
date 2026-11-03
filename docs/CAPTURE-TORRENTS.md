@@ -54,8 +54,8 @@ References: [Chrome downloads API](https://developer.chrome.com/docs/extensions/
 
 ## Final validation and delivery
 
-**238 unique automated checks passed:** 72 Rust, 76 HTTP/TLS/media integration,
-12 torrent and 78 JavaScript checks. Root/native lint, frontend compilation and
+**239 unique automated checks passed:** 72 Rust, 76 HTTP/TLS/media integration,
+13 torrent and 78 JavaScript checks. Root/native lint, frontend compilation and
 NSIS packaging passed. Five isolated-browser scenarios exercised native handoff,
 independent controls and location cancellation. The separate historical >4 GiB
 resource test was not repeated. No new public-internet speed comparison is claimed.
@@ -80,3 +80,18 @@ the current browser URL. No further desktop input was issued. **The existing
 Chrome extension still needs Reload at chrome://extensions.** On-disk files are
 0.2.0; its currently loaded version is not claimed verified. The signed public
 release and browser-store distribution remain separate work.
+
+## Final Windows CI verification — 3 November 2026
+
+[Windows run 41474175041](https://github.com/GeniusDevam/IDMXL/actions/runs/41474175041)
+passed for the final runtime `fb595286ba42b15f4a285bc864e714320840466a`, including
+engine/recovery/TLS/media/torrent tests and native desktop checks. The installed
+109 runtime files were rechecked against the saved hashes on 3 November and all
+still matched. The source is saved on `feature/native-capture-torrents` with
+[draft review #2](https://github.com/GeniusDevam/IDMXL/pull/2); no merge or public
+binary release was made.
+
+The automatic approval system blocked temporary build-cache deletion with
+“blocked by policy.” Those caches were left in place; this did not block the
+application update or qualification. The Chrome Reload action still needs a user
+click after the Computer Use URL-policy stop.
