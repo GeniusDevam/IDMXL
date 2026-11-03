@@ -47,6 +47,14 @@ impl Handler for Body {
     }
 }
 pub fn fetch(url: &str, limit: usize, public_only: bool) -> Result<(String, Vec<u8>)> {
+    fetch_context(url, limit, public_only, None)
+}
+pub fn fetch_context(
+    url: &str,
+    limit: usize,
+    public_only: bool,
+    context: Option<&crate::request_context::RequestContext>,
+) -> Result<(String, Vec<u8>)> {
     let mut current = platform::checked_url(url)?;
     for _ in 0..=5 {
         let mut easy = Easy2::new(Body {
@@ -66,6 +74,9 @@ pub fn fetch(url: &str, limit: usize, public_only: bool) -> Result<(String, Vec<
         easy.http_content_decoding(false)?;
         let mut headers = List::new();
         headers.append("Accept-Encoding: identity")?;
+        if let Some(context) = context {
+            context.append(current.as_str(), &mut headers)?;
+        }
         easy.http_headers(headers)?;
         if public_only {
             crate::network::pin_public(&mut easy, current.as_str())?;

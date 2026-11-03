@@ -9,6 +9,7 @@ import { MediaDialog, MediaDetails } from "./media";
 import { Updates } from "./updates";
 import { importableLinks } from "./links";
 import { DownloadManagement, FileControls } from "./controls";
+import { Torrents } from "./torrents";
 
 type Job = {
   id: string;
@@ -47,7 +48,12 @@ type Policy = {
   speed_limit: number;
 };
 type Filter = "all" | "active" | "completed";
-const activeStates = new Set(["downloading", "pausing", "verifying", "waiting"]);
+const activeStates = new Set([
+  "downloading",
+  "pausing",
+  "verifying",
+  "waiting",
+]);
 const native = isTauri();
 
 function bytes(value: string | bigint | null) {
@@ -144,6 +150,9 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
 
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [torrentJobs, setTorrentJobs] = useState<
+    { id: string; name: string; state: string; folder: string }[]
+  >([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
@@ -279,7 +288,9 @@ function App() {
   }, [selected?.id]);
 
   const active = jobs.filter((j) => activeStates.has(j.state));
-  const nativeActive = active.filter((j) => j.mode !== "browser" && j.state !== "waiting");
+  const nativeActive = active.filter(
+    (j) => j.mode !== "browser" && j.state !== "waiting",
+  );
   const completed = jobs.filter((j) => j.state === "completed");
   const queued = jobs.filter((j) =>
     ["queued", "paused", "failed"].includes(j.state),
@@ -421,7 +432,7 @@ function App() {
           onClick={() => setShowAbout(!showAbout)}
         >
           <Icon name="info" size={17} />
-          About this preview<span>0.1</span>
+          About this preview<span>0.2</span>
         </button>
       </aside>
 
@@ -489,18 +500,29 @@ function App() {
           )}
           {native && (
             <DownloadManagement
-              jobs={jobs}
+              jobs={[
+                ...jobs,
+                ...torrentJobs.map((j) => ({
+                  id: `torrent:${j.id}`,
+                  name: j.name,
+                  state: j.state,
+                  destination: j.folder,
+                  mode: "torrent",
+                  file_available: true,
+                })),
+              ]}
               onChanged={() => void refresh()}
               formatError={friendly}
             />
           )}
+          {native && <Torrents onJobs={setTorrentJobs} />}
           {showAbout && (
             <section className="about-panel">
               <strong>A dependable foundation, in progress.</strong>
               <p>
-                This preview supports HTTP and HTTPS file downloads, verified
-                checkpoints, pause/resume and SHA-256 checks. One file runs at a
-                time, with named queues and scheduled starts. Browser handoff
+                This preview supports HTTP and HTTPS files, BitTorrent downloads,
+                verified checkpoints, pause/resume and integrity checks. HTTP and
+                media use named queues; torrents have a parallel queue. Browser handoff
                 needs the separate extension setup. Media downloads preserve
                 selected original tracks. Online updates need the release
                 owner's signing and hosting setup.
@@ -703,7 +725,9 @@ function App() {
                             ? "File unavailable"
                             : job.state === "queued" && !job.queue_window_open
                               ? "Waiting for queue hours"
-                              : job.state === "waiting" ? "Waiting for server" : job.state.replaceAll("_", " ")}
+                              : job.state === "waiting"
+                                ? "Waiting for server"
+                                : job.state.replaceAll("_", " ")}
                         </span>
                       </div>
                       {job.error && (
@@ -711,11 +735,14 @@ function App() {
                       )}
                       {job.retry_not_before && (
                         <p className="job-error">
-                          {job.state === "waiting" ? "Resumes automatically after " : "Source retry available after "}
+                          {job.state === "waiting"
+                            ? "Resumes automatically after "
+                            : "Source retry available after "}
                           {new Date(
                             Number(job.retry_not_before),
                           ).toLocaleString()}
-                          {job.state === "waiting" && ` · ${Math.max(0,Math.ceil((Number(job.retry_not_before)-Date.now())/1000))}s remaining`}
+                          {job.state === "waiting" &&
+                            ` · ${Math.max(0, Math.ceil((Number(job.retry_not_before) - Date.now()) / 1000))}s remaining`}
                         </p>
                       )}
                     </div>
@@ -1005,7 +1032,12 @@ function App() {
                       type="number"
                       min="0"
                       value={policyDraft.speed_limit}
-                      onChange={(e) =>setPolicyDraft({...policyDraft,speed_limit:Number(e.target.value)})}
+                      onChange={(e) =>
+                        setPolicyDraft({
+                          ...policyDraft,
+                          speed_limit: Number(e.target.value),
+                        })
+                      }
                     />
                   </label>
                   <label>
@@ -1015,11 +1047,16 @@ function App() {
                       min="0.01"
                       max="168"
                       step="0.25"
-                      value={(policyDraft.recovery_timeout_seconds ?? 86400)/3600}
+                      value={
+                        (policyDraft.recovery_timeout_seconds ?? 86400) / 3600
+                      }
                       onChange={(e) =>
                         setPolicyDraft({
                           ...policyDraft,
-                          recovery_timeout_seconds:Math.max(1,Math.round(Number(e.target.value)*3600)),
+                          recovery_timeout_seconds: Math.max(
+                            1,
+                            Math.round(Number(e.target.value) * 3600),
+                          ),
                         })
                       }
                     />
@@ -1353,7 +1390,8 @@ function friendly(error: unknown): string {
     digest_mismatch:
       "The file did not match the expected SHA-256. It has not been published.",
     server_throttled: "The server asked us to wait. Try this download later.",
-    recovery_timed_out: "Automatic recovery stopped after the selected time without progress. Saved data is kept; choose Retry now to try again.",
+    recovery_timed_out:
+      "Automatic recovery stopped after the selected time without progress. Saved data is kept; choose Retry now to try again.",
     server_retry_pending:
       "The source is cooling down as requested by its server. Queued jobs wait until that deadline.",
     private_network_blocked:

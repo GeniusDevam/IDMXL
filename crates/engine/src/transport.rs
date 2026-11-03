@@ -69,6 +69,7 @@ pub struct Receiver {
     pub(crate) storage: Option<crate::storage::Target>,
     pub(crate) disk_paused: bool,
     pub(crate) backpressure_events: u64,
+    expected_content_type: Option<String>,
     buffer: Vec<u8>,
     file: Option<Arc<File>>,
     stop: Arc<AtomicBool>,
@@ -92,6 +93,7 @@ impl Receiver {
             storage: None,
             disk_paused: false,
             backpressure_events: 0,
+            expected_content_type: None,
             buffer: Vec::new(),
             file,
             stop,
@@ -135,6 +137,16 @@ impl Receiver {
         }
         if !self.headers.identity_encoding() {
             return Err("encoded_response_unsupported");
+        }
+        if self.expected_content_type.as_ref().is_some_and(|expected| {
+            let actual = self
+                .headers
+                .fields
+                .get("content-type")
+                .map(|s| s.split(';').next().unwrap_or("").trim());
+            actual.is_some_and(|actual| !actual.eq_ignore_ascii_case(expected))
+        }) {
+            return Err("capture_content_changed");
         }
         match &self.mode {
             Mode::Probe => {
@@ -399,11 +411,26 @@ pub fn handle(
     speed: u64,
     public_only: bool,
 ) -> Result<Easy2<Receiver>> {
+    handle_context(url, mode, file, stop, speed, public_only, None)
+}
+
+pub fn handle_context(
+    url: &str,
+    mode: Mode,
+    file: Option<Arc<File>>,
+    stop: Arc<AtomicBool>,
+    speed: u64,
+    public_only: bool,
+    context: Option<&crate::request_context::RequestContext>,
+) -> Result<Easy2<Receiver>> {
     platform::checked_url(url)?;
     let mut headers = List::new();
     headers.append("Accept-Encoding: identity")?;
     if let Mode::Range { etag, .. } = &mode {
         headers.append(&format!("If-Match: {etag}"))?;
+    }
+    if let Some(context) = context {
+        context.append(url, &mut headers)?;
     }
     let range = match &mode {
         Mode::Probe => Some("0-0".to_owned()),
@@ -411,13 +438,16 @@ pub fn handle(
         Mode::Sequential => None,
     };
     let mut easy = Easy2::new(Receiver::new(mode, file, stop));
+    if let Some(context) = context {
+        easy.get_mut().expected_content_type = context.content_type.clone();
+    }
     easy.url(url)?;
     if public_only {
         crate::network::pin_public(&mut easy, url)?;
     }
     easy.follow_location(false)?;
     easy.proxy("")?;
-    easy.useragent("IDMXL/0.1.0")?;
+    easy.useragent(concat!("IDMXL/", env!("CARGO_PKG_VERSION")))?;
     easy.http_headers(headers)?;
     easy.http_content_decoding(false)?;
     easy.progress(true)?;
@@ -474,20 +504,29 @@ impl std::fmt::Display for Throttled {
 impl std::error::Error for Throttled {}
 
 pub fn probe(url: &str, stop: Arc<AtomicBool>, public_only: bool) -> Result<Probe> {
-    probe_inner(url, stop, public_only, true)
+    probe_context(url, stop, public_only, true, None)
 }
 pub fn probe_exact(url: &str, stop: Arc<AtomicBool>, public_only: bool) -> Result<Probe> {
-    probe_inner(url, stop, public_only, false)
+    probe_context(url, stop, public_only, false, None)
 }
-fn probe_inner(
+pub fn probe_context(
     url: &str,
     stop: Arc<AtomicBool>,
     public_only: bool,
     redirects: bool,
+    context: Option<&crate::request_context::RequestContext>,
 ) -> Result<Probe> {
     let mut resolved = url.to_owned();
     for _ in 0..=5 {
-        let mut easy = handle(&resolved, Mode::Probe, None, stop.clone(), 0, public_only)?;
+        let mut easy = handle_context(
+            &resolved,
+            Mode::Probe,
+            None,
+            stop.clone(),
+            0,
+            public_only,
+            context,
+        )?;
         easy.timeout(Duration::from_secs(20))?;
         let result = easy.perform();
         let receiver = easy.get_ref();

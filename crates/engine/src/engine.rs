@@ -465,11 +465,14 @@ impl Engine {
             bail!("destination_exists");
         }
         let phase = Instant::now();
+        let context = self.store.capture_context(id)?;
         let probe = if job.replayable {
-            Some(transport::probe(
+            Some(transport::probe_context(
                 &job.url,
                 options.stop.clone(),
                 job.public_only,
+                true,
+                context.as_ref(),
             )?)
         } else {
             None
@@ -601,6 +604,7 @@ impl Engine {
         metrics: &mut crate::performance::Metrics,
         saved: &mut Option<RangeSession>,
     ) -> Result<Option<String>> {
+        let context = self.store.capture_context(&job.id)?;
         let phase = Instant::now();
         let total = job.total.context("missing_range_length")?;
         let completed = self.store.extents(&job.id, job.generation)?;
@@ -753,7 +757,7 @@ impl Engine {
                         total,
                         etag: job.etag.clone().context("missing_range_validator")?,
                     };
-                    let mut easy = transport::handle(
+                    let mut easy = transport::handle_context(
                         job.resolved_url
                             .as_deref()
                             .context("missing_resolved_url")?,
@@ -762,6 +766,7 @@ impl Engine {
                         options.stop.clone(),
                         speed,
                         job.public_only,
+                        context.as_ref(),
                     )?;
                     easy.get_mut().instrument = metrics.enabled();
                     if let Some(version) = options.http_version {
@@ -988,16 +993,18 @@ impl Engine {
         metrics: &mut crate::performance::Metrics,
     ) -> Result<()> {
         let mut resolved = url.to_owned();
+        let context = self.store.capture_context(&job.id)?;
         for _ in 0..=5 {
             self.store
                 .start_request(&job.id, job.generation, 0, -1, u32::MAX)?;
-            let mut easy = transport::handle(
+            let mut easy = transport::handle_context(
                 &resolved,
                 Mode::Sequential,
                 Some(file.clone()),
                 options.stop.clone(),
                 options.speed_limit_bytes,
                 job.public_only,
+                context.as_ref(),
             )?;
             easy.get_mut().instrument = metrics.enabled();
             if let Some(version) = options.http_version {

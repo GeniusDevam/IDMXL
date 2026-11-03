@@ -1,0 +1,4 @@
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS request_context (job_id TEXT PRIMARY KEY REFERENCES jobs(id), context BLOB NOT NULL);
+PRAGMA user_version=8;
+COMMIT;

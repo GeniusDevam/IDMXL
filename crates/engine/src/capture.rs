@@ -193,9 +193,8 @@ impl Store {
         let identity:Option<(String,u64)>=self.db.query_row("SELECT c.etag,c.total FROM capture_handoffs c JOIN handoffs h USING(request_id) WHERE h.job_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if let Some((etag, total)) = identity {
             let probe = probe.context("capture_identity_mismatch")?;
-            if !probe.ranged
-                || probe.etag.as_ref() != Some(&etag)
-                || probe.total != Some(total)
+            if (!etag.is_empty() && (!probe.ranged || probe.etag.as_ref() != Some(&etag)))
+                || (total > 0 && probe.total != Some(total))
                 || probe.resolved != self.get(id)?.url
             {
                 bail!("resource_changed");

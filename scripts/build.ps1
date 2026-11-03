@@ -7,6 +7,7 @@ $profile = if ($Release -or $Bundle) { 'release' } else { 'debug' }
 . (Join-Path $PSScriptRoot 'tools.ps1')
 Initialize-IDMXLTools
 . (Join-Path $PSScriptRoot 'stage-media.ps1') -BuildDirectory $MediaBuildDirectory
+& (Join-Path $PSScriptRoot 'stage-torrent.ps1')
 
 function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)

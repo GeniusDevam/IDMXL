@@ -18,7 +18,7 @@ export async function requestDownloads(api, kind = "jobs", fields = {}) {
   return reply.jobs;
 }
 export function downloadButtons(job) {
-  const active = ["downloading", "verifying", "pausing", "waiting"].includes(job.state);
+  const active = ["downloading", "verifying", "pausing", "waiting", "metadata", "checking", "seeding", "moving"].includes(job.state);
   const terminal = [
     "completed",
     "canceled",

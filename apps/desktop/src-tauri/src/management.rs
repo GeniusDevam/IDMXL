@@ -51,9 +51,16 @@ pub async fn manage_downloads(
     confirmed: bool,
 ) -> Result<Vec<serde_json::Value>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        open()?
-            .manage_downloads(&ids, &action, confirmed)
-            .map_err(|e| e.to_string())
+        if !confirmed {return Err("confirmation_required".into());}
+        if ids.len()>1000 || !["pause","cancel","delete"].contains(&action.as_str()) {return Err("invalid_control_action".into());}
+        let store=open()?;
+        let (torrents,files):(Vec<_>,Vec<_>)=ids.into_iter().partition(|id|id.starts_with("torrent:"));
+        let mut results=if files.is_empty(){Vec::new()}else{store.manage_downloads(&files,&action,confirmed).map_err(|e|e.to_string())?};
+        for id in torrents {
+            let result=idmxl_engine::torrent::request(&store.directory,&engine_binary()?,&serde_json::json!({"kind":"control","id":id.strip_prefix("torrent:").unwrap_or(""),"action":action,"confirmed":confirmed}));
+            results.push(serde_json::json!({"id":id,"success":result.is_ok(),"error":result.err().map(|e|e.to_string())}));
+        }
+        Ok(results)
     })
     .await
     .map_err(|_| "operation_failed".to_owned())?

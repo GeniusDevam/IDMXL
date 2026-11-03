@@ -9,7 +9,6 @@ chrome.runtime.onInstalled.addListener(() => {
       id: MENU,
       title: "Queue link in IDMXL",
       contexts: ["link"],
-      targetUrlPatterns: ["http://*/*", "https://*/*"],
     }),
   );
 });
@@ -23,6 +22,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   } catch {
     return;
   }
+  if (source.protocol === "magnet:" || /\.torrent$/i.test(source.pathname)) { await queueTorrent(source.href); return; }
   if (
     !["http:", "https:"].includes(source.protocol) ||
     source.username ||
@@ -66,3 +66,23 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     await chrome.action.setBadgeBackgroundColor({ color: "#ac4038" });
   }
 });
+
+async function queueTorrent(url) {
+  const request_id = crypto.randomUUID();
+  try {
+    const reply = await chrome.runtime.sendNativeMessage(HOST, {version:7,kind:"torrent_inspect",request_id,url});
+    if (!reply?.accepted || reply.version!==7 || reply.request_id!==request_id || !reply.job_id) throw new Error();
+    await chrome.storage.local.set({lastStatus:"Choose the torrent files and download folder in IDMXL."});
+  } catch { await chrome.storage.local.set({lastStatus:"Torrent handoff failed. Open IDMXL and paste the magnet link or torrent URL."}); }
+}
+chrome.runtime.onMessage?.addListener((message,sender,reply)=>{
+  if(sender?.id!==chrome.runtime.id || !sender.tab || message?.kind!=="torrent-link" || typeof message.url!=="string" || !message.url.startsWith("magnet:?"))return false;
+  void queueTorrent(message.url).then(()=>reply({accepted:true}),()=>reply({accepted:false})); return true;
+});
+async function registerTorrentClicks() {
+  if (!chrome.scripting?.registerContentScripts || !chrome.permissions?.contains) return;
+  if (!(await chrome.permissions.contains({origins:["http://*/*","https://*/*"]}))) return;
+  try { await chrome.scripting.registerContentScripts([{id:"idmxl-torrent-links",js:["torrent-links.js"],matches:["http://*/*","https://*/*"],runAt:"document_start",allFrames:true,persistAcrossSessions:true}]); } catch {}
+}
+chrome.permissions?.onAdded?.addListener(()=>void registerTorrentClicks());
+void registerTorrentClicks();

@@ -72,6 +72,16 @@ def main():
                          "properties":[{"name":"idmxl:inventory-scope","value":"Exact staged Windows x64 helper; stream-copy build with AAC decoder, no network or encoders"}],
                          "externalReferences":[{"type":"distribution","url":"https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz"}]}
     notice_files("media:FFmpeg@9.0.2",media)
+    torrent=ROOT / "apps/desktop/src-tauri/torrent"
+    if (torrent / "idmxl-torrent.exe").is_file():
+        runtime=json.loads(subprocess.run([str(ROOT/".local/torrent-build/Scripts/python.exe"),"-c","import json,sys,ssl,sqlite3,libtorrent;print(json.dumps({'python':sys.version.split()[0],'openssl':ssl.OPENSSL_VERSION.split()[1],'sqlite':sqlite3.sqlite_version,'libtorrent':libtorrent.version}))"],capture_output=True,text=True,check=True).stdout)
+        for name,version,license,binary in [("libtorrent",runtime["libtorrent"],"BSD-3-Clause",next((torrent/"_internal/libtorrent").glob("*.pyd"))),("CPython",runtime["python"],"PSF-2.0",next((torrent/"_internal").glob("python3*.dll"))),("OpenSSL",runtime["openssl"],"Apache-2.0",torrent/"_internal/libcrypto-3-x64.dll"),("SQLite-torrent",runtime["sqlite"],"blessing",torrent/"_internal/sqlite3.dll")]:
+            ref=f"torrent:{name}@{version}"
+            components[ref]={"type":"library","bom-ref":ref,"name":name,"version":version,"licenses":[{"expression":license}],"hashes":[{"alg":"SHA-256","content":hashlib.sha256(binary.read_bytes()).hexdigest()}],"properties":[{"name":"idmxl:inventory-scope","value":"Bundled torrent worker; versions queried from its pinned build environment"}]}
+        ref="torrent:worker@0.2.0"
+        components[ref]={"type":"application","bom-ref":ref,"name":"IDMXL torrent worker","version":"0.2.0","hashes":[{"alg":"SHA-256","content":hashlib.sha256((torrent/"idmxl-torrent.exe").read_bytes()).hexdigest()}],"licenses":[{"license":{"name":"PyInstaller bootloader GPL terms with its distribution exception; application source terms are separate"}}]}
+        for file in (torrent/"notices").glob("*.txt"):
+            (notices/("torrent-"+file.name)).write_bytes(file.read_bytes())
     for name,version in [("NSIS","3.13"),("nsis-tauri-utils","0.5.3")]:
         ref=f"installer:{name}@{version}"
         components[ref]={"type":"application","bom-ref":ref,"name":name,"version":version,
@@ -82,7 +92,7 @@ def main():
     merged={}
     for graph in graphs:merged.setdefault(graph["ref"],set()).update(graph["dependsOn"])
     bom={"bomFormat":"CycloneDX","specVersion":"1.6","serialNumber":"urn:uuid:"+str(uuid.uuid4()),"version":1,
-         "metadata":{"timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat(),"component":{"type":"application","name":"IDMXL","version":"0.1.0"},
+         "metadata":{"timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat(),"component":{"type":"application","name":"IDMXL","version":doctor["version"]},
                      "properties":[{"name":"idmxl:release-status","value":"Development inventory; not a completed redistribution audit. Native versions require build review; OS/WebView2/NSIS terms are separate."}]},
          "components":sorted(components.values(),key=lambda n:n["bom-ref"]),"dependencies":[{"ref":ref,"dependsOn":sorted(deps)} for ref,deps in sorted(merged.items())]}
     (out / "sbom.cdx.json").write_text(json.dumps(bom,indent=2),encoding="utf-8")
