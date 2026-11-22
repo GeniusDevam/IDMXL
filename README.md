@@ -128,4 +128,8 @@ Tests use generated data and loopback servers. The separate optional large-file 
 
 ## Licensing
 
-A product license for IDMXL's own source has not been selected. Public repository visibility does not designate an open-source license. Third-party components retain their own licenses and notices; see [DEPENDENCIES.md](docs/DEPENDENCIES.md). No rights to Internet Download Manager's code or branding are implied.
+Free for non-commercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE.md): personal projects, study, research, hobby use, and use by charities, schools and public bodies. If you share this project or build on it, keep the `Required Notice` line from the license and credit GeniusDevam with a link to this repository.
+
+Commercial use needs a separate licence. To arrange one, open an issue titled "Commercial licence" in this repository or contact [@GeniusDevam](https://github.com/GeniusDevam) on GitHub.
+
+Third-party components retain their own licenses and notices; see [DEPENDENCIES.md](docs/DEPENDENCIES.md). No rights to Internet Download Manager's code or branding are implied.
