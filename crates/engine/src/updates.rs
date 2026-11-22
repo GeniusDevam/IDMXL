@@ -335,7 +335,7 @@ pub fn snapshot(profile: &Path, installed: &Path) -> Result<PathBuf> {
     let db = rusqlite::Connection::open(profile.join("jobs.db"))?;
     let schema: u32 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let integrity: String = db.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
-    if schema > 6 || integrity != "ok" {
+    if schema > crate::store::SCHEMA_VERSION || integrity != "ok" {
         bail!("update_backup_failed");
     }
     let directory = profile
@@ -395,7 +395,7 @@ pub fn restore(directory: &Path) -> Result<PathBuf> {
     }
     let receipt: Recovery =
         serde_json::from_slice(&platform::unprotect(&bytes)?).context("invalid_update_receipt")?;
-    if receipt.schema > 6
+    if receipt.schema > crate::store::SCHEMA_VERSION
         || receipt.files.len() != 4
         || hash(&directory.join("jobs.sqlite"))? != receipt.database_sha256
     {

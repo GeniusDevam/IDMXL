@@ -626,6 +626,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ctrlc",
+ "curl",
  "idmxl-engine",
  "serde",
  "serde_json",

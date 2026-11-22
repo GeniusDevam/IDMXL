@@ -32,6 +32,8 @@ type Job = {
   queue_window_open: boolean;
   transfer_requests: string;
   failed_requests: string;
+  last_http_status?: number | null;
+  recovery_attempts?: number;
 };
 type Policy = {
   queue_name: string;
@@ -41,10 +43,11 @@ type Policy = {
   connections: number;
   adaptive: boolean;
   retries: number;
+  recovery_timeout_seconds: number;
   speed_limit: number;
 };
 type Filter = "all" | "active" | "completed";
-const activeStates = new Set(["downloading", "pausing", "verifying"]);
+const activeStates = new Set(["downloading", "pausing", "verifying", "waiting"]);
 const native = isTauri();
 
 function bytes(value: string | bigint | null) {
@@ -276,7 +279,7 @@ function App() {
   }, [selected?.id]);
 
   const active = jobs.filter((j) => activeStates.has(j.state));
-  const nativeActive = active.filter((j) => j.mode !== "browser");
+  const nativeActive = active.filter((j) => j.mode !== "browser" && j.state !== "waiting");
   const completed = jobs.filter((j) => j.state === "completed");
   const queued = jobs.filter((j) =>
     ["queued", "paused", "failed"].includes(j.state),
@@ -700,7 +703,7 @@ function App() {
                             ? "File unavailable"
                             : job.state === "queued" && !job.queue_window_open
                               ? "Waiting for queue hours"
-                              : job.state.replaceAll("_", " ")}
+                              : job.state === "waiting" ? "Waiting for server" : job.state.replaceAll("_", " ")}
                         </span>
                       </div>
                       {job.error && (
@@ -708,10 +711,11 @@ function App() {
                       )}
                       {job.retry_not_before && (
                         <p className="job-error">
-                          Source retry available after{" "}
+                          {job.state === "waiting" ? "Resumes automatically after " : "Source retry available after "}
                           {new Date(
                             Number(job.retry_not_before),
                           ).toLocaleString()}
+                          {job.state === "waiting" && ` · ${Math.max(0,Math.ceil((Number(job.retry_not_before)-Date.now())/1000))}s remaining`}
                         </p>
                       )}
                     </div>
@@ -948,11 +952,11 @@ function App() {
                     />
                   </label>
                   <label>
-                    Maximum connections (1–4)
+                    Maximum connections (1–8)
                     <input
                       type="number"
                       min="1"
-                      max="4"
+                      max="8"
                       value={policyDraft.connections}
                       onChange={(e) =>
                         setPolicyDraft({
@@ -981,7 +985,7 @@ function App() {
                     count.
                   </p>
                   <label>
-                    Retries per block
+                    Network retries
                     <input
                       type="number"
                       min="0"
@@ -1001,10 +1005,21 @@ function App() {
                       type="number"
                       min="0"
                       value={policyDraft.speed_limit}
+                      onChange={(e) =>setPolicyDraft({...policyDraft,speed_limit:Number(e.target.value)})}
+                    />
+                  </label>
+                  <label>
+                    Automatic recovery limit (hours without progress)
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="168"
+                      step="0.25"
+                      value={(policyDraft.recovery_timeout_seconds ?? 86400)/3600}
                       onChange={(e) =>
                         setPolicyDraft({
                           ...policyDraft,
-                          speed_limit: Number(e.target.value),
+                          recovery_timeout_seconds:Math.max(1,Math.round(Number(e.target.value)*3600)),
                         })
                       }
                     />
@@ -1338,6 +1353,7 @@ function friendly(error: unknown): string {
     digest_mismatch:
       "The file did not match the expected SHA-256. It has not been published.",
     server_throttled: "The server asked us to wait. Try this download later.",
+    recovery_timed_out: "Automatic recovery stopped after the selected time without progress. Saved data is kept; choose Retry now to try again.",
     server_retry_pending:
       "The source is cooling down as requested by its server. Queued jobs wait until that deadline.",
     private_network_blocked:

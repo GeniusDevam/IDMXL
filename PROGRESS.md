@@ -1,8 +1,74 @@
 # IDMXL progress
 
-Updated 19 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
+Updated 24 October 2026. This file is the continuation record; checked items describe implemented and verified behavior, not full product parity.
 
-Current checkpoint: extension **0.1.5** and its matching native app add save-location confirmation, four-use folder learning, editable locations, live extension controls, immediate retry, confirmed file deletion and confirmed bulk actions. Native handoff holds Chrome’s filename decision and cancels its original transfer before starting. Browser-assisted downloads remain browser-owned and use Chrome/Edge’s chooser. **182 local checks pass**; native lint, frontend, release/installer build and isolated update qualification pass. [Windows CI for this runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed. The normal-session update receipt verifies the matching engine/desktop, all fourteen extension files, preserved history IDs and restoration of the previously running queue. The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The extension Pause/Resume/Cancel test also passed by user confirmation. See docs/TEST-EVIDENCE.md, docs/DOWNLOAD-CONTROLS.md and docs/evidence/download-controls.json. Earlier milestones are historical.
+Current speed checkpoint: runtime `0bfe65c3ee2e3c326be7fe871d10495b5293b740`
+retains verified Windows transfer sessions across ordinary server waits, preserves
+learned origin throttling across successful progress, uses automatic large-file
+requests up to 128 MiB, and avoids needless queue rotation for a single eligible
+file. Restart/identity-change validation, durable checkpoints and whole-file
+verification remain required. Schema 7 and extension 0.1.6 are unchanged.
+
+The exact runtime passes **219 unique checks**, lint, release/installer builds
+and Windows CI **39779365305**. A new 21.47 GB pause/process-loss/resume test and
+isolated migration/update qualification passed. In the fresh 23 October public
+pair, IDMXL completed 14,004,054,153 bytes in **26m57.3s (69.27 Mbps)** versus IDM's
+**32m03.4s (58.25 Mbps)**, using **15.91% less time**. Both full-file hashes and
+all ZIP CRCs passed; the test files were deleted. IDMXL used a single stream,
+so the public result alone does not establish the benefit of range-specific
+changes. See [SPEED-RESULTS](docs/SPEED-RESULTS.md) and its numeric evidence for
+the controlled mechanism test, preserved earlier results and limits.
+
+Matching update files are prepared in IDMXL-Speed-Preview. The normal installed
+copy is not claimed updated, no PR was merged and no binary release published.
+The recovery checkpoint below is historical.
+
+Current recovery checkpoint: runtime `eb087afaf4011a73f2ba6ea1778d033ccae28abf`
+adds persisted Waiting for server, a separate no-progress budget, full Retry-After
+support, per-origin pacing, fewer small tail requests, exact numeric diagnostics
+and waiting controls in the desktop/extension **0.1.6**. **213 unique local checks**,
+lint/formatting, frontend and installer builds pass. Windows CI **39722100156**
+passes for that exact runtime. Schema **7** upgrades with a version-6 backup.
+
+The 21,474,836,737-byte controlled transfer passed pause, owned-engine termination,
+same-generation resume, no saved-body refetch and an independent full-file hash.
+Both fresh 14,004,054,153-byte public copies passed independent SHA-256 and ZIP
+CRC checks. IDMXL completed after **20 recorded HTTP 429 body responses** and
+22 recovery schedules; **62m43.2s (29.77 Mbps)** versus IDM's **29m22.3s
+(63.57 Mbps)**. Both used a verified four-connection ceiling, with IDM's early
+buffering included. Recovery reliability improved; this pair is slower than IDM
+and establishes no general speed advantage. About 20 minutes of waiting and
+12 minutes of repeated saved-block validation explain most of the measured gap.
+
+All owned test payloads were deleted. An isolated updater qualification preserves
+completed/paused history and safely keeps upgraded binaries with schema 7 after
+a simulated post-migration failure. Matching files are prepared in the separate
+IDMXL-Recovery-Preview delivery folder; the normal-session installation is **not
+claimed updated**. No PR was merged or binary release published. The remaining
+speed work and qualification limits are in [RECOVERY-RESULTS](docs/RECOVERY-RESULTS.md)
+and [machine-readable evidence](docs/evidence/recovery.json).
+
+Previous performance checkpoint (21 October): grouped 1–16 MiB HTTP leases with compatible
+1 MiB recovery blocks, a bounded background writer, batched FULL checkpoints,
+incremental durable accounting, coalesced writes, overlapped disk SHA-256, immediate scheduler refill, numeric
+diagnostics and bounded 1/2/4/8 adaptive trials are implemented. Existing/new
+automatic ceilings remain four; the desktop supports an explicit ceiling of
+eight. **199 local checks pass**, including private-CA HTTP/2, media, all eight
+crash boundaries for both one- and two-block requests, and a distinct-pattern
+4,294,967,553-byte file through a 397-character path. Forced backpressure, queued
+pause/cancel and writer failure also pass. An isolated update preserved completed
+history and resumed a genuinely paused download made by the previous release.
+The frozen final build averaged **48.245 s versus IDM's 55.572 s**, 13.19% less
+time, over three verified downloads each of one official 399 MB file. This is
+one-source evidence, not general IDM superiority. All 30 final controlled local
+downloads also verified; see docs/PERFORMANCE-RESULTS.md for distributions,
+preserved development regressions and limits. Tested code commit `673a8d3`
+passes Windows CI run 39589624438. Matching installer/update files are prepared
+in the separate IDMXL-Performance-Preview delivery folder; the normal-session
+installation is not claimed updated and the existing public draft is unchanged.
+See docs/PERFORMANCE.md and the latest docs/TEST-EVIDENCE.md section.
+
+Previous controls checkpoint: extension **0.1.5** and its matching native app add save-location confirmation, four-use folder learning, editable locations, live extension controls, immediate retry, confirmed file deletion and confirmed bulk actions. Native handoff holds Chrome’s filename decision and cancels its original transfer before starting. Browser-assisted downloads remain browser-owned and use Chrome/Edge’s chooser. **182 local checks passed for that runtime**; native lint, frontend, release/installer build and isolated update qualification passed. [Windows CI for that runtime](https://github.com/GeniusDevam/IDMXL/actions/runs/39292821659) passed. The normal-session update receipt verifies those engine/desktop files, all fourteen extension files, preserved history IDs and restoration of the previously running queue. The user confirmed actual Chrome 0.1.5 Save/Cancel, live progress and no separate Chrome download. The extension Pause/Resume/Cancel test also passed by user confirmation. See docs/DOWNLOAD-CONTROLS.md and docs/evidence/download-controls.json. Earlier milestones are historical.
 
 ## Milestone 1: first working transfer engine
 

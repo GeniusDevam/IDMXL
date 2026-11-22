@@ -215,7 +215,7 @@ pub fn publish(staging: &Path, destination: &Path) -> Result<()> {
         .collect();
     // Omitting REPLACE_EXISTING makes publication fail on a raced destination collision.
     if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
-        bail!("publication_failed");
+        return Err(std::io::Error::last_os_error()).context("publication_failed");
     }
     Ok(())
 }

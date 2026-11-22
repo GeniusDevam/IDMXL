@@ -22,6 +22,9 @@ class Server(http.server.BaseHTTPRequestHandler):
         path=urlsplit(self.path).path;self.server.calls[path]+=1
         value=self.server.files.get(path)
         if value is None:self.send_error(404);return
+        if getattr(self.server,'cooldowns',{}).get(path,0)>0 and self.headers.get('Range')!='bytes=0-0':
+            self.server.cooldowns[path]-=1
+            self.send_response(503);self.send_header('Retry-After','1');self.send_header('Content-Length','0');self.end_headers();return
         data=value.read_bytes() if isinstance(value,Path) else value
         start,end=0,len(data)-1;range_header=self.headers.get('Range')
         if range_header:
@@ -64,7 +67,7 @@ class MediaTests(unittest.TestCase):
         cls.thread=threading.Thread(target=cls.server.serve_forever,daemon=True);cls.thread.start();cls.base=f'http://127.0.0.1:{cls.server.server_port}'
     @classmethod
     def tearDownClass(cls):cls.server.shutdown();cls.server.server_close();cls.thread.join();cls.temp.cleanup()
-    def setUp(self):self.case=tempfile.TemporaryDirectory();self.directory=Path(self.case.name);self.state=self.directory/'state';self.server.delay=0
+    def setUp(self):self.case=tempfile.TemporaryDirectory();self.directory=Path(self.case.name);self.state=self.directory/'state';self.server.delay=0;self.server.cooldowns={}
     def tearDown(self):self.server.delay=0;self.case.cleanup()
     def command(self,*args,input=None,success=True,exe=EXE,env=None):
         result=subprocess.run([str(exe),'--state-dir',str(self.state),*map(str,args)],input=json.dumps(input) if input is not None else None,text=True,capture_output=True,timeout=120,env=env)
@@ -125,6 +128,23 @@ class MediaTests(unittest.TestCase):
             self.server.delay=0;done=self.command('run',job['id']);self.assertEqual(done['state'],'completed');self.assertEqual(self.packets(Path(done['destination']),'v'),['SHA256:'+self.video_digest])
         finally:
             if worker.poll() is None:worker.kill();worker.communicate()
+    def test_segment_cooldown_waits_and_resumes_parent_without_duplicate_history(self):
+        segments=''.join(f'<SegmentURL media="seg-{i}.m4s"/>' for i in range(1,self.segment_count+1))
+        self.files['/recovery.mpd']=f'<MPD type="static"><Period><AdaptationSet contentType="audio"><Representation id="aac" bandwidth="128000"><SegmentList><Initialization sourceURL="init.mp4"/>{segments}</SegmentList></Representation></AdaptationSet></Period></MPD>'.encode()
+        job=self.add('/recovery.mpd','m4a',True);self.server.cooldowns={'/seg-1.m4s':1}
+        worker=subprocess.Popen([str(EXE),'--state-dir',str(self.state),'run',job['id']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            deadline=time.monotonic()+15
+            while time.monotonic()<deadline:
+                view=self.command('show',job['id'])
+                if view['state']=='waiting':break
+                self.assertIsNone(worker.poll());time.sleep(.05)
+            else:self.fail('Media parent never waited for its throttled component')
+            self.assertFalse(Path(view['destination']).exists());self.assertEqual(len(self.command('list')),1)
+            out,err=worker.communicate(timeout=25);self.assertEqual(worker.returncode,0,err)
+            done=json.loads(out);self.assertEqual(done['state'],'completed');self.assertEqual(self.packets(Path(done['destination']),'a'),self.aac_payloads())
+        finally:
+            if worker.poll() is None:worker.kill();worker.communicate()
     def test_unsigned_installer_is_not_accepted_as_an_update(self):
         path=self.directory/'fake.exe';path.write_bytes(b'not a signed installer')
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(ROOT/'scripts/verify-authenticode.ps1'),'-Installer',str(path),'-Thumbprint','a'*40],capture_output=True,timeout=30)
@@ -133,9 +153,9 @@ class MediaTests(unittest.TestCase):
     def test_media_publication_recovers_with_the_owned_output_after_process_loss(self):
         job=self.add('/audio.aac','m4a',True)
         env=dict(os.environ,IDMXL_FAULT='before_media_assembly',IDMXL_TEST_MEDIA_DIR=str(HELPERS))
-        first=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(first.returncode,86)
+        first=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(first.returncode,86,first.stderr)
         env['IDMXL_FAULT']='after_rename'
-        second=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(second.returncode,86)
+        second=self.command('run',job['id'],exe=Path(os.environ['IDMXL_FAULT_EXE']),env=env,success=False);self.assertEqual(second.returncode,86,second.stderr)
         done=self.command('run',job['id']);self.assertEqual(done['state'],'completed');self.assertEqual(self.packets(Path(done['destination']),'a'),self.aac_payloads())
         if os.name=='nt':self.assertIn('ZoneId=3',Path(done['destination']+':Zone.Identifier').read_text())
     @unittest.skipUnless(os.environ.get('IDMXL_FAULT_EXE'),'Run -Faults for retained-track corruption checks')

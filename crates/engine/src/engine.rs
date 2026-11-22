@@ -1,6 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
     fs::{File, OpenOptions},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -18,7 +20,7 @@ use crate::{
     transport::{self, Mode, Receiver},
 };
 
-const BLOCK: u64 = 1024 * 1024;
+const BLOCK: u64 = transport::RECOVERY_BLOCK;
 
 #[derive(Clone)]
 pub struct RunOptions {
@@ -26,6 +28,12 @@ pub struct RunOptions {
     pub retries: u32,
     pub speed_limit_bytes: u64,
     pub adaptive: bool,
+    pub metrics: Option<PathBuf>,
+    /// Experimental request-span override. Recovery blocks remain one MiB.
+    pub request_mib: Option<u8>,
+    pub http_version: Option<curl::easy::HttpVersion>,
+    pub recovery_timeout: Duration,
+    pub wait_for_recovery: bool,
     pub stop: Arc<AtomicBool>,
 }
 impl Default for RunOptions {
@@ -35,6 +43,11 @@ impl Default for RunOptions {
             retries: 2,
             speed_limit_bytes: 0,
             adaptive: false,
+            metrics: None,
+            request_mib: None,
+            http_version: None,
+            recovery_timeout: Duration::from_secs(86400),
+            wait_for_recovery: true,
             stop: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -42,6 +55,39 @@ impl Default for RunOptions {
 
 pub struct Engine {
     pub store: Store,
+    sessions: RefCell<HashMap<String, TransferSession>>,
+}
+
+// Only the owning process may reuse validation. The Windows staging handle
+// denies writes/deletion for its entire lifetime, including cooldowns/yields.
+// A separate job lease prevents another worker from changing its DB state
+// while the profile-wide engine lock is released for other downloads.
+struct TransferSession {
+    _lease: File,
+    range: Option<RangeSession>,
+    used: Instant,
+}
+
+struct RangeSession {
+    file: Arc<File>,
+    job: Job,
+    valid: HashMap<u64, Extent>,
+    verifier: crate::verification::Verifier,
+}
+
+impl RangeSession {
+    fn matches(&self, job: &Job) -> bool {
+        cfg!(windows)
+            && self.job.generation == job.generation
+            && self.job.total == job.total
+            && self.job.etag == job.etag
+            && self.job.resolved_url == job.resolved_url
+            && self.job.staging == job.staging
+            && self
+                .file
+                .metadata()
+                .is_ok_and(|m| Some(m.len()) == job.total)
+    }
 }
 
 #[derive(Clone)]
@@ -50,6 +96,7 @@ struct Work {
     length: u64,
     attempt: u32,
     ready: Instant,
+    accounted: u64,
 }
 
 struct Meter {
@@ -78,7 +125,26 @@ impl Meter {
 
 impl Engine {
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self {
+            store,
+            sessions: RefCell::new(HashMap::new()),
+        }
+    }
+
+    pub(crate) fn prune_sessions(&self) {
+        self.sessions.borrow_mut().retain(|id, _| {
+            let parent_running = self.store.db.query_row(
+                "SELECT NOT EXISTS(SELECT 1 FROM media_components c JOIN jobs p ON p.id=c.parent_id WHERE c.job_id=?1 AND (p.requested IN ('paused','canceled') OR p.state IN ('failed','completed','canceled')))",
+                [id], |r| r.get::<_, bool>(0)).unwrap_or(false);
+            parent_running && self.store.get(id).is_ok_and(|j| {
+                matches!(j.state.as_str(), "waiting" | "queued" | "paused")
+                    && matches!(j.requested.as_str(), "run" | "queued")
+            })
+        });
+    }
+
+    pub(crate) fn release_sessions(&self) {
+        self.sessions.borrow_mut().clear();
     }
 
     /// Reconcile orphaned active states only while no transfer process owns the profile.
@@ -96,24 +162,157 @@ impl Engine {
     }
 
     pub fn run(&self, id: &str, options: RunOptions) -> Result<JobView> {
-        if !(1..=4).contains(&options.connections) || options.retries > 5 {
+        if !(1..=8).contains(&options.connections)
+            || options.retries > 5
+            || options.request_mib.is_some_and(|n| !(1..=32).contains(&n))
+            || options.recovery_timeout.is_zero()
+            || options.recovery_timeout > Duration::from_secs(604800)
+        {
             bail!("invalid_transfer_options");
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.store.directory.join("engine.lock"))?;
-        fs2::FileExt::try_lock_exclusive(&lock).context("engine_busy")?;
-        self.store.recover_active()?;
-        if self.store.get(id)?.state == "failed" {
-            self.store.reset_retry_budget(id)?;
+        if options.metrics.is_some() && self.store.is_media(id)? {
+            bail!("media_metrics_unsupported");
         }
-        self.run_locked(id, options)
+        let mut metrics = crate::performance::Metrics::new(options.metrics.as_deref())?;
+        let result = (|| {
+            let mut recovering = false;
+            loop {
+                let current = self.store.get(id)?;
+                if recovering {
+                    if current.state == "completed" {
+                        return self.store.view(id);
+                    }
+                    if current.state == "failed" {
+                        bail!("{}", current.error.as_deref().unwrap_or("transfer_failed"));
+                    }
+                    if options.stop.load(Ordering::Relaxed)
+                        || matches!(current.requested.as_str(), "paused" | "canceled")
+                    {
+                        let state = if current.requested == "canceled" {
+                            "canceled"
+                        } else {
+                            "paused"
+                        };
+                        self.store.state(id, state, None)?;
+                        return self.store.view(id);
+                    }
+                    if current
+                        .policy
+                        .deadline
+                        .is_some_and(|n| crate::store::now() >= n)
+                    {
+                        self.store.request(id, "paused")?;
+                        return self.store.view(id);
+                    }
+                    if self.store.expire_recovery(id, options.recovery_timeout)? {
+                        bail!("recovery_timed_out");
+                    }
+                    if current
+                        .retry_not_before
+                        .is_some_and(|n| n > crate::store::now())
+                    {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                }
+                let lock = OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .read(true)
+                    .write(true)
+                    .open(self.store.directory.join("engine.lock"))?;
+                if let Err(error) = fs2::FileExt::try_lock_exclusive(&lock) {
+                    if recovering {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    return Err(error).context("engine_busy");
+                }
+                self.store.recover_active()?;
+                if self.store.get(id)?.state == "failed" {
+                    self.store.reset_retry_budget(id)?;
+                }
+                let view = self.run_locked_with_metrics(id, &options, &mut metrics)?;
+                drop(lock);
+                if view.state != "waiting" || !options.wait_for_recovery {
+                    return Ok(view);
+                }
+                recovering = true;
+            }
+        })();
+        let status = result
+            .as_ref()
+            .map(|v| v.state.as_str())
+            .unwrap_or("failed");
+        if metrics.finish(status).is_err() {
+            eprintln!("performance_report_write_failed");
+        }
+        self.prune_sessions();
+        result
     }
 
     pub(crate) fn run_locked(&self, id: &str, options: RunOptions) -> Result<JobView> {
+        let mut metrics = crate::performance::Metrics::new(None)?;
+        self.run_locked_with_metrics(id, &options, &mut metrics)
+    }
+    fn run_locked_with_metrics(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+    ) -> Result<JobView> {
+        self.prune_sessions();
+        let cached = self.sessions.borrow_mut().remove(id);
+        let mut session = if let Some(session) = cached {
+            session
+        } else {
+            let job = self.store.get(id)?;
+            let lease = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(
+                    self.store
+                        .directory
+                        .join(format!("transfer-{}.lock", job.id)),
+                )?;
+            fs2::FileExt::try_lock_exclusive(&lease).context("engine_busy")?;
+            TransferSession {
+                _lease: lease,
+                range: None,
+                used: Instant::now(),
+            }
+        };
+        let result = self.execute_locked(id, options, metrics, &mut session);
+        if result.is_ok()
+            && self.store.get(id).is_ok_and(|j| {
+                matches!(j.state.as_str(), "waiting" | "paused") && j.requested == "run"
+            })
+        {
+            session.used = Instant::now();
+            let mut sessions = self.sessions.borrow_mut();
+            // Bound open handles and verification workers when many origins wait.
+            if sessions.len() >= 8
+                && let Some(oldest) = sessions
+                    .iter()
+                    .min_by_key(|(_, s)| s.used)
+                    .map(|(id, _)| id.clone())
+            {
+                sessions.remove(&oldest);
+            }
+            sessions.insert(id.to_owned(), session);
+        }
+        result
+    }
+
+    fn execute_locked(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+        session: &mut TransferSession,
+    ) -> Result<JobView> {
         let job = self.store.get(id)?;
         self.store.capture_runnable(id)?;
         if job.state == "preparing_media" {
@@ -125,18 +324,49 @@ impl Engine {
         if job.state == "canceled" {
             bail!("job_canceled");
         }
+        if options.metrics.is_some() && self.store.is_media(id)? {
+            bail!("media_metrics_unsupported");
+        }
         if job.state == "publishing" {
             return self.recover_publication(&job);
         }
         let explicit_retry = self.store.consume_retry_override(id)?;
         if self.store.retry_deadline(&job.url)?.is_some() && !explicit_retry {
+            if job.state == "waiting" {
+                return self.store.view(id);
+            }
             bail!("server_retry_pending");
         }
-        self.store.begin(id)?;
-        match self.transfer(id, &options) {
+        if !self.store.begin(id, &job.state, &job.requested)? {
+            return self.store.view(id);
+        }
+        match self.transfer(id, options, metrics, session) {
             Ok(()) => self.store.view(id),
             Err(error) => {
-                if let Some(throttle) = error.downcast_ref::<transport::Throttled>()
+                let canceled =
+                    options.stop.load(Ordering::Relaxed) || self.store.requested(id)? != "run";
+                if !canceled
+                    && (job.replayable || self.store.is_media(id)?)
+                    && let Some(throttle) = error.downcast_ref::<transport::Throttled>()
+                {
+                    match self
+                        .store
+                        .schedule_recovery(id, throttle, options.recovery_timeout)
+                    {
+                        Ok((deadline, attempt)) => {
+                            metrics.recovery(deadline, attempt, throttle);
+                            if metrics.snapshot("waiting").is_err() {
+                                eprintln!("performance_report_write_failed");
+                            }
+                            return self.store.view(id);
+                        }
+                        Err(recovery) if recovery.to_string() == "recovery_timed_out" => {
+                            self.store.state(id, "failed", Some("recovery_timed_out"))?;
+                            return Err(recovery);
+                        }
+                        Err(recovery) => return Err(recovery),
+                    }
+                } else if let Some(throttle) = error.downcast_ref::<transport::Throttled>()
                     && let Some(delay) = throttle.delay
                 {
                     self.store.defer_origin(&job.url, delay)?;
@@ -210,14 +440,31 @@ impl Engine {
         }
     }
 
-    fn transfer(&self, id: &str, options: &RunOptions) -> Result<()> {
+    fn transfer(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+        session: &mut TransferSession,
+    ) -> Result<()> {
         if self.store.is_media(id)? {
             return crate::media::execute(self, id, options);
         }
+        self.transfer_file(id, options, metrics, session)
+    }
+
+    fn transfer_file(
+        &self,
+        id: &str,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+        session: &mut TransferSession,
+    ) -> Result<()> {
         let mut job = self.store.get(id)?;
         if job.destination.exists() {
             bail!("destination_exists");
         }
+        let phase = Instant::now();
         let probe = if job.replayable {
             Some(transport::probe(
                 &job.url,
@@ -227,6 +474,7 @@ impl Engine {
         } else {
             None
         };
+        metrics.probe_ms += crate::performance::milliseconds(phase);
         self.store.capture_identity(id, probe.as_ref())?;
         let ranged = probe.as_ref().is_some_and(|p| p.ranged);
         let resolved = probe
@@ -251,14 +499,16 @@ impl Engine {
             !reuse,
         )?;
         job = self.store.get(id)?;
-        let file = if reuse {
+        if !reuse || !session.range.as_ref().is_some_and(|s| s.matches(&job)) {
+            session.range = None;
+        }
+        let file = if let Some(saved) = &session.range {
+            saved.file.clone()
+        } else if reuse {
             if platform::is_reparse(&job.staging)? {
                 bail!("staging_reparse_point");
             }
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&job.staging)?
+            Arc::new(staging_options(false).open(&job.staging)?)
         } else {
             if job.staging.exists() {
                 if platform::is_reparse(&job.staging)? {
@@ -266,11 +516,7 @@ impl Engine {
                 }
                 std::fs::remove_file(&job.staging)?;
             }
-            OpenOptions::new()
-                .create_new(true)
-                .read(true)
-                .write(true)
-                .open(&job.staging)?
+            Arc::new(staging_options(true).open(&job.staging)?)
         };
         if let Some(total) = total {
             let needed = total.saturating_sub(job.durable);
@@ -280,12 +526,20 @@ impl Engine {
                 bail!("insufficient_disk_space");
             }
         }
-        let file = Arc::new(file);
-        if ranged {
-            self.download_ranges(&job, file.clone(), options)?;
+        let phase = Instant::now();
+        let prior_validation = metrics.resume_validation_ms;
+        let prior_verification = metrics.verification_tail_ms;
+        let downloaded = if ranged {
+            self.download_ranges(&job, file.clone(), options, metrics, &mut session.range)
         } else {
-            self.download_sequential(&job, &resolved, file.clone(), options)?;
-        }
+            self.download_sequential(&job, &resolved, file.clone(), options, metrics)
+                .map(|_| None)
+        };
+        metrics.download_ms += (crate::performance::milliseconds(phase)
+            - (metrics.resume_validation_ms - prior_validation)
+            - (metrics.verification_tail_ms - prior_verification))
+            .max(0.);
+        let verified = downloaded?;
         if self.should_stop(id, options)? {
             file.sync_all()?;
             let state = if self.store.requested(id)? == "canceled" {
@@ -297,9 +551,17 @@ impl Engine {
             return Ok(());
         }
         self.store.state(id, "verifying", None)?;
+        let phase = Instant::now();
         file.sync_all()?;
+        metrics.final_flush_ms = crate::performance::milliseconds(phase);
         let size = file.metadata()?.len();
-        let digest = platform::hash_extent(&file, 0, size)?;
+        let phase = Instant::now();
+        let digest = if let Some(digest) = verified {
+            digest
+        } else {
+            platform::hash_extent(&file, 0, size)?
+        };
+        metrics.verification_tail_ms += crate::performance::milliseconds(phase);
         if job
             .expected_sha256
             .as_ref()
@@ -316,6 +578,7 @@ impl Engine {
             self.store.state(id, state, None)?;
             return Ok(());
         }
+        let phase = Instant::now();
         let file_id = platform::file_id(&file)?;
         self.store.publication_intent(id, size, &digest, &file_id)?;
         crate::fault::point("after_publication_intent");
@@ -325,28 +588,73 @@ impl Engine {
         platform::publish(&job.staging, &job.destination)?;
         crate::fault::point("after_rename");
         crate::fault::point("before_completion_commit");
-        self.store.complete(id)
+        self.store.complete(id)?;
+        metrics.publication_ms = crate::performance::milliseconds(phase);
+        Ok(())
     }
 
-    fn download_ranges(&self, job: &Job, file: Arc<File>, options: &RunOptions) -> Result<()> {
+    fn download_ranges(
+        &self,
+        job: &Job,
+        file: Arc<File>,
+        options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
+        saved: &mut Option<RangeSession>,
+    ) -> Result<Option<String>> {
+        let phase = Instant::now();
         let total = job.total.context("missing_range_length")?;
         let completed = self.store.extents(&job.id, job.generation)?;
-        let mut valid = HashSet::new();
-        for extent in completed {
-            let expected_length = BLOCK.min(total.saturating_sub(extent.offset));
-            let sound = extent.offset.is_multiple_of(BLOCK)
-                && extent.length == expected_length
-                && extent.length > 0
-                && platform::hash_extent(&file, extent.offset, extent.length)
-                    .is_ok_and(|hash| hash == extent.digest);
-            if sound {
-                valid.insert(extent.offset);
-            } else {
-                self.store.forget_extent(&job.id, extent.offset)?;
+        let cached = saved.take().filter(|s| {
+            s.matches(job)
+                && completed.len() == s.valid.len()
+                && completed.iter().all(|e| s.valid.get(&e.offset) == Some(e))
+        });
+        let (mut valid, verifier) = if let Some(session) = cached {
+            metrics.validation_reuses += 1;
+            metrics.validation_reused_bytes += completed.iter().map(|e| e.length).sum::<u64>();
+            (session.valid, session.verifier)
+        } else {
+            let mut valid = HashMap::new();
+            for extent in completed {
+                metrics.resume_validated_bytes += extent.length;
+                let expected_length = BLOCK.min(total.saturating_sub(extent.offset));
+                let sound = extent.offset.is_multiple_of(BLOCK)
+                    && extent.length == expected_length
+                    && extent.length > 0
+                    && platform::hash_extent(&file, extent.offset, extent.length)
+                        .is_ok_and(|hash| hash == extent.digest);
+                if sound {
+                    valid.insert(extent.offset, extent);
+                } else {
+                    self.store.forget_extent(&job.id, extent.offset)?;
+                }
             }
+            file.set_len(total)?;
+            let reader = File::open(&job.staging)?;
+            if platform::file_id(&reader)? != platform::file_id(&file)? {
+                bail!("staging_identity_mismatch");
+            }
+            let verifier = crate::verification::Verifier::new(reader);
+            (valid, verifier)
+        };
+        metrics.resume_validation_ms += crate::performance::milliseconds(phase);
+        let mut storage = crate::storage::Pipeline::new(
+            &self.store,
+            &job.id,
+            job.generation,
+            file.clone(),
+            metrics.enabled(),
+            total,
+        )?;
+        let mut prefix = 0;
+        while prefix < total && valid.contains_key(&prefix) {
+            prefix += BLOCK.min(total - prefix);
         }
-        file.set_len(total)?;
-        let mut durable = self.store.get(&job.id)?.durable;
+        verifier.advance(prefix);
+        let durable = self.store.get(&job.id)?.durable;
+        let mut written = durable;
+        let mut accepted = durable;
+        let mut ending = VecDeque::new();
         let mut meter = Meter::new(durable);
         let mut pending: VecDeque<Work> = VecDeque::new();
         let mut cursor = 0;
@@ -355,201 +663,320 @@ impl Engine {
         let connections = if options.speed_limit_bytes > 0 {
             options
                 .connections
-                .min(options.speed_limit_bytes.min(4) as usize)
+                .min(options.speed_limit_bytes.min(8) as usize)
         } else {
             options.connections
         };
+        let mut token = 0usize;
+        let source = job
+            .resolved_url
+            .as_deref()
+            .context("missing_resolved_url")?;
+        let connections = self.store.paced_connections(source, connections)?;
         let speed = if options.speed_limit_bytes > 0 {
             options.speed_limit_bytes / connections as u64
         } else {
             0
         };
-        let mut token = 0usize;
         let mut adaptive = (options.adaptive && options.speed_limit_bytes == 0)
             .then(|| crate::adaptive::Controller::new(connections));
         let mut concurrency = adaptive.as_ref().map_or(connections, |t| t.limit());
         let mut sample_time = Instant::now();
         let mut sample_bytes = durable;
-        let mut origin_retry_until = Instant::now();
-        while cursor < total || !pending.is_empty() || !active.is_empty() {
-            if self.should_stop(&job.id, options)? {
-                return Ok(());
-            }
-            while active.len() < concurrency {
-                if Instant::now() < origin_retry_until {
-                    break;
+        let mut admission_at = Instant::now() + self.store.admission_wait(source)?;
+        let outcome = (|| -> Result<()> {
+            while cursor < total || !pending.is_empty() || !active.is_empty() || !ending.is_empty()
+            {
+                if self.should_stop(&job.id, options)? {
+                    return Ok(());
                 }
-                let task = if let Some(index) =
-                    pending.iter().position(|task| task.ready <= Instant::now())
-                {
-                    pending.remove(index).expect("known retry index")
-                } else if !pending.is_empty() {
-                    break;
-                } else {
-                    while cursor < total && valid.contains(&cursor) {
-                        cursor += BLOCK.min(total - cursor);
-                    }
-                    if cursor == total {
+                // End markers must precede any retry data in the single writer
+                // FIFO, so incomplete old buffers cannot overwrite a new lease.
+                while let Some(token) = ending.front().copied() {
+                    if !storage.end(token)? {
                         break;
                     }
-                    let task = Work {
-                        offset: cursor,
-                        length: BLOCK.min(total - cursor),
-                        attempt: 0,
-                        ready: Instant::now(),
-                    };
-                    cursor += task.length;
-                    task
-                };
-                self.store.start_request(
-                    &job.id,
-                    job.generation,
-                    task.offset,
-                    task.length.try_into()?,
-                    options.retries,
-                )?;
-                let mode = Mode::Range {
-                    offset: task.offset,
-                    length: task.length,
-                    total,
-                    etag: job.etag.clone().context("missing_range_validator")?,
-                };
-                let easy = transport::handle(
-                    job.resolved_url
-                        .as_deref()
-                        .context("missing_resolved_url")?,
-                    mode,
-                    Some(file.clone()),
-                    options.stop.clone(),
-                    speed,
-                    job.public_only,
-                )?;
-                token += 1;
-                let mut handle = multi.add2(easy)?;
-                handle.set_token(token)?;
-                active.insert(token, (handle, task));
-            }
-            multi.perform()?;
-            let in_flight: u64 = active
-                .values()
-                .map(|(handle, _)| handle.get_ref().bytes)
-                .sum();
-            let received = durable.saturating_add(in_flight);
-            if let Some(controller) = adaptive.as_mut()
-                && sample_time.elapsed() >= Duration::from_secs(1)
-            {
-                controller.sample(
-                    received.saturating_sub(sample_bytes) as f64
-                        / sample_time.elapsed().as_secs_f64(),
-                );
-                concurrency = controller.limit();
-                sample_time = Instant::now();
-                sample_bytes = received;
-            }
-            meter.update(
-                &self.store,
-                &job.id,
-                durable.saturating_add(in_flight),
-                Some(total),
-            )?;
-            let mut results = Vec::new();
-            multi.messages(|message| {
-                if let Some(result) = message.result()
-                    && let Ok(token) = message.token()
-                {
-                    results.push((token, result));
+                    ending.pop_front();
                 }
-            });
-            for (token, result) in results {
-                let (handle, mut task) = active.remove(&token).context("unknown_transfer_token")?;
-                let easy = multi.remove2(handle)?;
-                let receiver = easy.get_ref();
-                let error = receiver
-                    .error
-                    .or_else(|| {
-                        result.as_ref().err().map(|error| {
-                            if matches!(error.code(), 35 | 51 | 58 | 60 | 77) {
-                                "tls_verification_failed"
-                            } else {
-                                "transfer_transport_failed"
-                            }
-                        })
-                    })
-                    .or_else(|| {
-                        (receiver.headers.status != 206 || receiver.bytes != task.length)
-                            .then_some("invalid_content_length")
-                    });
-                if let Some(error) = error {
-                    if error == "server_throttled"
-                        && let Some(header) = receiver.headers.fields.get("retry-after")
-                        && let Some(delay) = server_delay(header)
+                if !ending.is_empty() {
+                    std::thread::sleep(Duration::from_millis(2));
+                    continue;
+                }
+                while active.len() < concurrency {
+                    if Instant::now() < admission_at {
+                        break;
+                    }
+                    let mut task = if let Some(index) =
+                        pending.iter().position(|task| task.ready <= Instant::now())
                     {
-                        self.store
-                            .defer_origin(job.resolved_url.as_deref().unwrap_or(&job.url), delay)?;
-                        self.store.defer_origin(&job.url, delay)?;
-                    }
-                    let retryable = error == "server_throttled"
-                        || (error == "transfer_transport_failed"
-                            && result.as_ref().err().is_some_and(|e| {
-                                matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
-                            }));
-                    if error != "transfer_interrupted" {
-                        task.attempt = self.store.failed_request(
-                            &job.id,
-                            job.generation,
-                            task.offset,
-                            task.length.try_into()?,
-                        )?;
-                    }
-                    if retryable && task.attempt <= options.retries {
-                        let Some(delay) = retry_delay(
-                            receiver
-                                .headers
-                                .fields
-                                .get("retry-after")
-                                .map(String::as_str),
-                            task.attempt,
-                        ) else {
-                            // A long or unparsed server deadline must not be retried early.
-                            bail!("server_throttled");
-                        };
-                        task.ready = Instant::now() + delay;
-                        if error == "server_throttled" {
-                            concurrency = 1;
-                            if let Some(controller) = adaptive.as_mut() {
-                                controller.throttle();
-                            }
-                            origin_retry_until = origin_retry_until.max(task.ready);
-                        } else if let Some(controller) = adaptive.as_mut() {
-                            controller.throttle();
-                            concurrency = 1;
+                        pending.remove(index).expect("known retry index")
+                    } else if !pending.is_empty() {
+                        break;
+                    } else {
+                        while cursor < total && valid.contains_key(&cursor) {
+                            cursor += BLOCK.min(total - cursor);
                         }
-                        pending.push_back(task);
-                        continue;
-                    }
-                    bail!("{error}");
-                }
-                // The file flush precedes every durable extent transaction.
-                file.sync_all()?;
-                crate::fault::point("after_extent_flush");
-                self.store.checkpoint(
-                    &job.id,
-                    job.generation,
-                    &Extent {
+                        if cursor == total {
+                            break;
+                        }
+                        let span = request_span(total, cursor, connections, options.request_mib);
+                        let mut length = BLOCK.min(total - cursor);
+                        while length < span
+                            && cursor + length < total
+                            && !valid.contains_key(&(cursor + length))
+                        {
+                            length += BLOCK.min(total - cursor - length);
+                        }
+                        let task = Work {
+                            offset: cursor,
+                            length,
+                            attempt: 0,
+                            ready: Instant::now(),
+                            accounted: 0,
+                        };
+                        cursor += task.length;
+                        task
+                    };
+                    task.accounted = 0;
+                    let phase = Instant::now();
+                    self.store.start_range(
+                        &job.id,
+                        job.generation,
+                        task.offset,
+                        task.length,
+                        options.retries,
+                    )?;
+                    metrics.request_accounting_ms += crate::performance::milliseconds(phase);
+                    let mode = Mode::Range {
                         offset: task.offset,
                         length: task.length,
-                        digest: receiver.digest(),
-                    },
-                )?;
-                durable += task.length;
+                        total,
+                        etag: job.etag.clone().context("missing_range_validator")?,
+                    };
+                    let mut easy = transport::handle(
+                        job.resolved_url
+                            .as_deref()
+                            .context("missing_resolved_url")?,
+                        mode,
+                        Some(file.clone()),
+                        options.stop.clone(),
+                        speed,
+                        job.public_only,
+                    )?;
+                    easy.get_mut().instrument = metrics.enabled();
+                    if let Some(version) = options.http_version {
+                        easy.http_version(version)?;
+                    }
+                    token += 1;
+                    easy.get_mut().storage = Some(storage.target(token, task.offset, task.length));
+                    let mut handle = multi.add2(easy)?;
+                    metrics.requests += 1;
+                    handle.set_token(token)?;
+                    active.insert(token, (handle, task));
+                    admission_at = Instant::now() + self.store.admit_request(source)?;
+                }
+                if storage.ready() {
+                    for (handle, _) in active.values_mut() {
+                        if handle.get_ref().disk_paused {
+                            handle.get_mut().disk_paused = false;
+                            handle.unpause_write()?;
+                        }
+                    }
+                }
+                multi.perform()?;
+                for (handle, task) in active.values_mut() {
+                    accepted += handle.get_ref().block_bytes.saturating_sub(task.accounted);
+                    task.accounted = handle.get_ref().block_bytes;
+                }
+                for event in storage.events() {
+                    let crate::storage::Event::Written(extent) = event;
+                    written += extent.length;
+                    valid.insert(extent.offset, extent);
+                }
+                while prefix < total && valid.contains_key(&prefix) {
+                    prefix += BLOCK.min(total - prefix);
+                }
+                verifier.advance(prefix);
+                // Accepted complete blocks include queued data; partial blocks do not.
+                let partial: u64 = active
+                    .values()
+                    .map(|(handle, _)| handle.get_ref().bytes - handle.get_ref().block_bytes)
+                    .sum();
+                let received = accepted.saturating_add(partial).min(total);
+                if let Some(controller) = adaptive.as_mut()
+                    && sample_time.elapsed() >= Duration::from_secs(1)
+                {
+                    controller.sample(
+                        received.saturating_sub(sample_bytes) as f64
+                            / sample_time.elapsed().as_secs_f64(),
+                    );
+                    concurrency = controller.limit();
+                    sample_time = Instant::now();
+                    sample_bytes = received;
+                }
+                meter.update(&self.store, &job.id, received, Some(total))?;
+                let mut results = Vec::new();
+                multi.messages(|message| {
+                    if let Some(result) = message.result()
+                        && let Ok(token) = message.token()
+                    {
+                        results.push((token, result));
+                    }
+                });
+                for (token, result) in results {
+                    let (handle, mut task) =
+                        active.remove(&token).context("unknown_transfer_token")?;
+                    let easy = multi.remove2(handle)?;
+                    ending.push_back(token);
+                    metrics.request(&easy);
+                    let receiver = easy.get_ref();
+                    metrics.response(receiver, task.attempt + 1, concurrency);
+                    let error = receiver
+                        .error
+                        .or_else(|| {
+                            result.as_ref().err().map(|error| {
+                                if matches!(error.code(), 35 | 51 | 58 | 60 | 77) {
+                                    "tls_verification_failed"
+                                } else {
+                                    "transfer_transport_failed"
+                                }
+                            })
+                        })
+                        .or_else(|| {
+                            (receiver.headers.status != 206 || receiver.bytes != task.length)
+                                .then_some("invalid_content_length")
+                        });
+                    if let Some(error) = error {
+                        if error == "server_throttled" {
+                            // A server cooldown is not a permanent failure of
+                            // these immutable recovery blocks. Drain disk work
+                            // before the outer layer persists a waiting job.
+                            self.store.record_throttle(
+                                &job.id,
+                                job.generation,
+                                task.offset,
+                                task.length,
+                            )?;
+                            return Err(
+                                transport::Throttled::response(source, &receiver.headers).into()
+                            );
+                        }
+                        let retryable = error == "transfer_transport_failed"
+                            && result.as_ref().err().is_some_and(|e| {
+                                matches!(e.code(), 5 | 6 | 7 | 18 | 28 | 52 | 55 | 56)
+                            });
+                        if error != "transfer_interrupted" {
+                            task.attempt = self.store.failed_range(
+                                &job.id,
+                                job.generation,
+                                task.offset,
+                                task.length,
+                            )?;
+                        }
+                        if retryable && task.attempt <= options.retries {
+                            let delay = transport_retry_delay(task.attempt);
+                            task.ready = Instant::now() + delay;
+                            // A fully written recovery block is immutable, even if a
+                            // later part of this HTTP response was interrupted.
+                            let accepted = receiver.block_bytes.min(task.length);
+                            task.offset += accepted;
+                            task.length -= accepted;
+                            if task.length == 0 {
+                                continue;
+                            }
+                            if let Some(controller) = adaptive.as_mut() {
+                                controller.throttle();
+                                concurrency = 1;
+                            }
+                            pending.push_back(task);
+                            continue;
+                        }
+                        bail!("{error}");
+                    }
+                    self.store.successful_request(source)?;
+                }
+                let ready = Instant::now() >= admission_at
+                    && (pending.iter().any(|w| w.ready <= Instant::now())
+                        || (pending.is_empty() && cursor < total));
+                if active.len() < concurrency && ready {
+                    continue;
+                }
+                if !active.is_empty() && active.values().all(|(h, _)| h.get_ref().disk_paused) {
+                    std::thread::sleep(Duration::from_millis(2));
+                } else if !active.is_empty() {
+                    multi.wait(&mut [], Duration::from_millis(100))?;
+                } else if !pending.is_empty() {
+                    let ready = pending
+                        .iter()
+                        .map(|w| w.ready)
+                        .min()
+                        .unwrap()
+                        .max(admission_at);
+                    std::thread::sleep(
+                        ready
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(100)),
+                    );
+                } else if cursor < total {
+                    std::thread::sleep(
+                        admission_at
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(100)),
+                    );
+                }
             }
-            if active.is_empty() {
-                std::thread::sleep(Duration::from_millis(25));
-            } else {
-                multi.wait(&mut [], Duration::from_millis(100))?;
-            }
+            Ok(())
+        })();
+        drop(active);
+        let phase = Instant::now();
+        let stats = storage.finish()?;
+        metrics.storage_drain_ms += crate::performance::milliseconds(phase);
+        metrics.storage_write_ms += stats.write_ms;
+        metrics.storage_hash_ms += stats.hash_ms;
+        metrics.storage_queue_peak_bytes =
+            metrics.storage_queue_peak_bytes.max(stats.queue_peak_bytes);
+        metrics.checkpoint_target_bytes = stats.checkpoint_target_bytes;
+        metrics.checkpoint_interval_ms = stats.checkpoint_interval_ms;
+        metrics.checkpoint_flush_ms += stats.flush_ms;
+        metrics.checkpoint_commit_ms += stats.commit_ms;
+        metrics.checkpoint_batches += stats.batches;
+        metrics.checkpoint_blocks += stats.blocks;
+        for event in storage.events() {
+            let crate::storage::Event::Written(extent) = event;
+            written += extent.length;
+            valid.insert(extent.offset, extent);
         }
-        Ok(())
+        while prefix < total && valid.contains_key(&prefix) {
+            prefix += BLOCK.min(total - prefix);
+        }
+        verifier.advance(prefix);
+        if outcome
+            .as_ref()
+            .is_err_and(|e| e.downcast_ref::<transport::Throttled>().is_some())
+            || self.should_stop(&job.id, options)?
+        {
+            if cfg!(windows) && self.store.requested(&job.id)? == "run" {
+                *saved = Some(RangeSession {
+                    file,
+                    job: job.clone(),
+                    valid,
+                    verifier,
+                });
+            }
+            outcome?;
+            return Ok(None);
+        }
+        outcome?;
+        if self.should_stop(&job.id, options)? {
+            return Ok(None);
+        }
+        if prefix != total || written != total {
+            bail!("verification_incomplete");
+        }
+        let phase = Instant::now();
+        let digest = verifier.finish(total)?;
+        metrics.verification_tail_ms += crate::performance::milliseconds(phase);
+        Ok(Some(digest))
     }
 
     fn download_sequential(
@@ -558,12 +985,13 @@ impl Engine {
         url: &str,
         file: Arc<File>,
         options: &RunOptions,
+        metrics: &mut crate::performance::Metrics,
     ) -> Result<()> {
         let mut resolved = url.to_owned();
         for _ in 0..=5 {
             self.store
                 .start_request(&job.id, job.generation, 0, -1, u32::MAX)?;
-            let easy = transport::handle(
+            let mut easy = transport::handle(
                 &resolved,
                 Mode::Sequential,
                 Some(file.clone()),
@@ -571,8 +999,13 @@ impl Engine {
                 options.speed_limit_bytes,
                 job.public_only,
             )?;
+            easy.get_mut().instrument = metrics.enabled();
+            if let Some(version) = options.http_version {
+                easy.http_version(version)?;
+            }
             let multi = Multi::new();
             let handle = multi.add2(easy)?;
+            metrics.requests += 1;
             let mut meter = Meter::new(0);
             loop {
                 if self.should_stop(&job.id, options)? {
@@ -600,8 +1033,14 @@ impl Engine {
                 }
             });
             let easy = multi.remove2(handle)?;
+            metrics.request(&easy);
             let receiver = easy.get_ref();
+            metrics.response(receiver, 1, 1);
             if let Some(error) = receiver.error {
+                if error == "server_throttled" {
+                    self.store.record_throttle(&job.id, job.generation, 0, 0)?;
+                    return Err(transport::Throttled::response(&resolved, &receiver.headers).into());
+                }
                 if error != "transfer_interrupted" {
                     self.store.failed_request(&job.id, job.generation, 0, -1)?;
                 }
@@ -705,15 +1144,37 @@ impl Engine {
     }
 }
 
-fn retry_delay(header: Option<&str>, attempt: u32) -> Option<Duration> {
-    if let Some(header) = header {
-        let delay = server_delay(header)?;
-        return (delay <= Duration::from_secs(300)).then_some(delay);
+fn staging_options(create: bool) -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(create);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Independent verification readers are allowed; external writers and
+        // deletion are excluded for the complete lifetime of this transfer.
+        options.share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ);
     }
+    options
+}
+
+fn request_span(total: u64, cursor: u64, connections: usize, override_mib: Option<u8>) -> u64 {
+    if let Some(mib) = override_mib {
+        return u64::from(mib) * BLOCK;
+    }
+    if total < 32 * BLOCK {
+        return BLOCK;
+    }
+    // Shrink toward the tail so a slow final lease cannot monopolize the work.
+    let blocks = (total - cursor).div_ceil(BLOCK);
+    // Large network leases do not change the one-MiB crash recovery blocks or
+    // bounded writer buffers. Fewer requests also reduce per-origin throttling.
+    let maximum = if total >= 512 * BLOCK { 128 } else { 16 };
+    (blocks.div_ceil((connections * 2) as u64)).clamp(4, maximum) * BLOCK
+}
+
+fn transport_retry_delay(attempt: u32) -> Duration {
     let ceiling = 200u128.checked_shl(attempt.min(5)).unwrap_or(6400);
-    Some(Duration::from_millis(
-        (uuid::Uuid::new_v4().as_u128() % ceiling) as u64,
-    ))
+    Duration::from_millis((uuid::Uuid::new_v4().as_u128() % ceiling) as u64)
 }
 
 pub(crate) fn server_delay(header: &str) -> Option<Duration> {
@@ -732,14 +1193,21 @@ pub(crate) fn server_delay(header: &str) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn request_spans_shrink_at_tail_and_preserve_small_file_behavior() {
+        assert_eq!(request_span(3 * BLOCK, 0, 4, None), BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 0, 4, None), 128 * BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 1023 * BLOCK, 4, None), 4 * BLOCK);
+        assert_eq!(request_span(1024 * BLOCK, 0, 4, Some(8)), 8 * BLOCK);
+    }
     use crate::AddJob;
     #[test]
-    fn long_or_unparsed_retry_after_never_retries_early() {
-        assert_eq!(retry_delay(Some("5"), 1), Some(Duration::from_secs(5)));
-        assert!(retry_delay(Some("3600"), 1).is_none());
-        assert!(retry_delay(Some("not a date"), 1).is_none());
+    fn server_retry_after_accepts_long_waits_and_dates() {
+        assert_eq!(server_delay("5"), Some(Duration::from_secs(5)));
+        assert_eq!(server_delay("3600"), Some(Duration::from_secs(3600)));
+        assert!(server_delay("not a date").is_none());
         let soon = std::time::SystemTime::now() + Duration::from_secs(5);
-        let delay = retry_delay(Some(&httpdate::fmt_http_date(soon)), 1).unwrap();
+        let delay = server_delay(&httpdate::fmt_http_date(soon)).unwrap();
         assert!(delay > Duration::from_secs(3) && delay <= Duration::from_secs(5));
     }
     #[test]

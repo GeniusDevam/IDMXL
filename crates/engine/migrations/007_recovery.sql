@@ -1,0 +1,13 @@
+BEGIN IMMEDIATE;
+ALTER TABLE policies ADD COLUMN recovery_timeout_seconds INTEGER NOT NULL DEFAULT 86400;
+CREATE TABLE IF NOT EXISTS recovery_jobs (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id), generation INTEGER NOT NULL,
+ durable INTEGER NOT NULL, since_ms INTEGER NOT NULL, attempts INTEGER NOT NULL,
+ next_ms INTEGER NOT NULL, http_status INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS origin_pacing (
+ origin TEXT PRIMARY KEY, next_ms INTEGER NOT NULL,
+ interval_ms INTEGER NOT NULL, successes INTEGER NOT NULL DEFAULT 0
+);
+PRAGMA user_version=7;
+COMMIT;

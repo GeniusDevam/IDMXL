@@ -157,6 +157,8 @@ pub fn control_download(store: &Store, executable: &Path, id: &str, action: &str
         .arg(job.policy.connections.to_string())
         .arg("--retries")
         .arg(job.policy.retries.to_string())
+        .arg("--recovery-timeout-seconds")
+        .arg(job.policy.recovery_timeout_seconds.to_string())
         .arg("--speed-limit")
         .arg(job.policy.speed_limit.to_string());
     if job.policy.adaptive {

@@ -52,6 +52,7 @@ pub struct JobPolicy {
     pub retries: u8,
     pub speed_limit: u64,
     pub adaptive: bool,
+    pub recovery_timeout_seconds: u32,
 }
 
 impl Default for JobPolicy {
@@ -65,6 +66,7 @@ impl Default for JobPolicy {
             retries: 2,
             speed_limit: 0,
             adaptive: false,
+            recovery_timeout_seconds: 86400,
         }
     }
 }
@@ -94,6 +96,8 @@ pub struct JobView {
     pub queue_window_open: bool,
     pub transfer_requests: String,
     pub failed_requests: String,
+    pub last_http_status: Option<u32>,
+    pub recovery_attempts: u32,
 }
 
 impl From<Job> for JobView {
@@ -102,6 +106,8 @@ impl From<Job> for JobView {
             queue_window_open: true,
             transfer_requests: "0".into(),
             failed_requests: "0".into(),
+            last_http_status: None,
+            recovery_attempts: 0,
             name: job
                 .destination
                 .file_name()
@@ -130,7 +136,7 @@ impl From<Job> for JobView {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Extent {
     pub offset: u64,
     pub length: u64,

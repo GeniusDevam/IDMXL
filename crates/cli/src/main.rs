@@ -43,10 +43,12 @@ enum Command {
     /// Run or safely resume one queued job. Ctrl+C pauses it.
     Run {
         id: String,
-        #[arg(long,default_value_t=2,value_parser=clap::value_parser!(u8).range(1..=4))]
+        #[arg(long,default_value_t=2,value_parser=clap::value_parser!(u8).range(1..=8))]
         connections: u8,
         #[arg(long,default_value_t=2,value_parser=clap::value_parser!(u8).range(0..=5))]
         retries: u8,
+        #[arg(long,default_value_t=86400,value_parser=clap::value_parser!(u32).range(1..=604800),help="Maximum automatic recovery time without saved progress, in seconds")]
+        recovery_timeout_seconds: u32,
         #[arg(
             long,
             default_value_t = 0,
@@ -58,6 +60,15 @@ enum Command {
             help = "Experimentally tune 1..connections for uncapped conditional ranges"
         )]
         adaptive: bool,
+        #[arg(
+            long,
+            help = "Write numeric performance diagnostics to a new JSON file"
+        )]
+        metrics: Option<PathBuf>,
+        #[arg(long,value_parser=clap::value_parser!(u8).range(1..=32),help="Experimental HTTP range span in MiB; recovery blocks stay 1 MiB")]
+        request_mib: Option<u8>,
+        #[arg(long,value_parser=["auto","http1","http2"],default_value="auto",help="HTTP version preference for body requests")]
+        http_version: String,
     },
     /// List the newest 1,000 jobs as redacted JSON.
     List,
@@ -170,8 +181,12 @@ fn run() -> Result<()> {
             id,
             connections,
             retries,
+            recovery_timeout_seconds,
             speed_limit,
             adaptive,
+            metrics,
+            request_mib,
+            http_version,
         } => {
             let stop = Arc::new(AtomicBool::new(false));
             let signal = stop.clone();
@@ -181,8 +196,19 @@ fn run() -> Result<()> {
                 RunOptions {
                     connections: connections as usize,
                     retries: retries as u32,
+                    recovery_timeout: std::time::Duration::from_secs(
+                        recovery_timeout_seconds as u64,
+                    ),
+                    wait_for_recovery: true,
                     speed_limit_bytes: speed_limit,
                     adaptive,
+                    metrics,
+                    request_mib,
+                    http_version: match http_version.as_str() {
+                        "http1" => Some(curl::easy::HttpVersion::V11),
+                        "http2" => Some(curl::easy::HttpVersion::V2TLS),
+                        _ => None,
+                    },
                     stop,
                 },
             )?)?

@@ -4,7 +4,7 @@ Status on 19 October 2026. "Partial" means a useful subset exists; it does not s
 
 | ID | Capability | Current evidence/status |
 |---|---|---|
-| F01 | Acceleration | Implemented for the scoped release: 1-4 conditional ranges, saved automatic/fixed controls and automatic tuning for new reusable desktop/queue jobs. Generated bottleneck/hash tests pass; wider performance qualification remains. |
+| F01 | Acceleration | Implemented for the scoped release: 1-8 concurrent conditional requests (default ceiling four), grouped range leases, batched durable checkpoints, overlapped SHA-256 and saved automatic/fixed controls. See PERFORMANCE.md for design, diagnostics and qualification boundaries. |
 | F02 | Pause/resume/retry | Implemented for the scoped release: verified resume, persisted failed-request budgets/counts across process loss, bounded retries, HTTP-date/numeric Retry-After and persistent origin cooldowns. Retry now grants a failed job a fresh budget and one explicit job-scoped cooldown override, without lifting unrelated jobs' waits. |
 | F03 | Recovery | Partial: process-kill and publication tests; full fault/power-loss qualification pending. |
 | F04 | Queues/priorities | Partial: automatic named queues, priorities, checkpoint-based rotation and queue pause/resume; one active job. |

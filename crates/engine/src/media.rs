@@ -397,6 +397,23 @@ fn execute_inner(engine: &Engine, id: &str, options: &RunOptions) -> Result<()> 
         if stopped(engine, id, options)? {
             bail!("transfer_interrupted");
         }
+        let child = engine.store.get(component)?;
+        if child.state == "waiting" {
+            let status = engine
+                .store
+                .recovery_info(component)?
+                .map(|r| r.2)
+                .unwrap_or(503);
+            return Err(crate::transport::Throttled {
+                url: child.url,
+                delay: child.retry_not_before.map(|n| {
+                    Duration::from_millis(n.saturating_sub(crate::store::now()).max(0) as u64)
+                }),
+                status,
+                invalid_retry_after: false,
+            }
+            .into());
+        }
         if result.is_err() || engine.store.get(component)?.state != "completed" {
             bail!("media_component_failed");
         }

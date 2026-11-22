@@ -1,0 +1,371 @@
+{
+  "date": "2026-10-22",
+  "source_commit": "eb087afaf4011a73f2ba6ea1778d033ccae28abf",
+  "engine_sha256": "6e9df870469d891244c52cf0af0ef5a1deaa1bf69ec670d365bf3e310ceced86",
+  "desktop_sha256": "3d40f8bf7c948d3993b8e86237b079e75ce85c6fa35602ea77bcafbb2258a4c4",
+  "installer_sha256": "036b03beb3fbeb123f4fefcde17bcfd54db992198ceb2a5d32463fd3a6519ba1",
+  "extension_version": "0.1.6",
+  "schema": 7,
+  "normal_session_installed": false,
+  "unique_local_checks": {
+    "rust": 66,
+    "python_ordinary": 72,
+    "python_resource": 1,
+    "node": 74,
+    "total": 213
+  },
+  "checks": "Root/native formatting and warnings-denied Clippy, frontend production build, full release/NSIS build passed.",
+  "windows_ci": {
+    "run_id": 39722100156,
+    "conclusion": "success",
+    "commit": "eb087afaf4011a73f2ba6ea1778d033ccae28abf"
+  },
+  "controlled": {
+    "status": "passed",
+    "bytes": 21474836737,
+    "sha256": "cc0d8604c1365e10356db6feb0113094da719f1d63c189a8a11b58c143b03030",
+    "phases": [
+      {
+        "name": "pause-phase",
+        "seconds": 241.7523807999969,
+        "peak_working_set_bytes": 33955840,
+        "exit_code": 0,
+        "last_status": {
+          "state": "paused",
+          "received": 5442976454,
+          "durable": 5440012288,
+          "speed": 0,
+          "generation": 1
+        }
+      },
+      {
+        "name": "process-loss-phase",
+        "seconds": 215.96768699999666,
+        "peak_working_set_bytes": 34750464,
+        "exit_code": 1,
+        "last_status": {
+          "state": "downloading",
+          "received": 10827578042,
+          "durable": 10780409856,
+          "speed": 0,
+          "generation": 1
+        }
+      },
+      {
+        "name": "final-resume",
+        "seconds": 551.7628690999991,
+        "peak_working_set_bytes": 35213312,
+        "exit_code": 0,
+        "last_status": {
+          "state": "completed",
+          "received": 21474836737,
+          "durable": 21474836737,
+          "speed": 0,
+          "generation": 1
+        }
+      }
+    ],
+    "same_generation": true,
+    "saved_bytes_before_final_resume": 10780409856,
+    "saved_body_blocks_not_refetched": true,
+    "independent_hash_seconds": 83.72686929997872,
+    "failed_requests": "0",
+    "mode": "ranged",
+    "database_integrity": "ok"
+  },
+  "public": {
+    "url": "https://download.blender.org/demo/movies/ToS/ToS_4k_DCP.zip",
+    "expected_bytes": 14004054153,
+    "order": [
+      "IDM",
+      "IDMXL"
+    ],
+    "connection_ceiling_each": 4,
+    "runs": [
+      {
+        "app": "IDM",
+        "status": "passed",
+        "expected_bytes": 14004054153,
+        "bytes": 14004054153,
+        "seconds": 1762.3131141493795,
+        "mbps": 63.57124186644608,
+        "sha256": "73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d",
+        "matches_reference": true,
+        "matches_previous_local_hash": true,
+        "archive": {
+          "entries": 7,
+          "uncompressed_bytes": 14106266173,
+          "crc_passed": true,
+          "extracted": false
+        },
+        "timing_valid": true,
+        "external_hash_seconds": 53.49477590000606,
+        "start_method": "Observed Date Added/Last Try Date including early download in File Info; one-second timestamp precision",
+        "started_utc": "2026-10-22T04:47:45Z"
+      },
+      {
+        "app": "IDMXL",
+        "status": "passed",
+        "expected_bytes": 14004054153,
+        "bytes": 14004054153,
+        "seconds": 3763.157072300004,
+        "mbps": 29.77086288761444,
+        "sha256": "73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d",
+        "matches_reference": true,
+        "matches_previous_local_hash": true,
+        "archive": {
+          "entries": 7,
+          "uncompressed_bytes": 14106266173,
+          "crc_passed": true,
+          "extracted": false
+        },
+        "timing_valid": true,
+        "mode": "ranged",
+        "requests": "921",
+        "failed_requests": "20",
+        "http_statuses": {
+          "206": 841,
+          "429": 20
+        },
+        "recovery_schedules": [
+          {
+            "at_ms": 1792646445372,
+            "next_attempt_ms": 1792646505369,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792646571185,
+            "next_attempt_ms": 1792646631184,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792646750716,
+            "next_attempt_ms": 1792646810714,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792646876143,
+            "next_attempt_ms": 1792646936141,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647066811,
+            "next_attempt_ms": 1792647126810,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647228324,
+            "next_attempt_ms": 1792647288323,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647400277,
+            "next_attempt_ms": 1792647460276,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647460540,
+            "next_attempt_ms": 1792647470698,
+            "attempt": 2,
+            "http_status": 429,
+            "retry_after_ms": 0,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647588601,
+            "next_attempt_ms": 1792647648600,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647731182,
+            "next_attempt_ms": 1792647791181,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792647891891,
+            "next_attempt_ms": 1792647951889,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792648077597,
+            "next_attempt_ms": 1792648137596,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792648256089,
+            "next_attempt_ms": 1792648316088,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792648316218,
+            "next_attempt_ms": 1792648326409,
+            "attempt": 2,
+            "http_status": 429,
+            "retry_after_ms": 0,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792648432621,
+            "next_attempt_ms": 1792648492620,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792648616659,
+            "next_attempt_ms": 1792648676658,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792648798725,
+            "next_attempt_ms": 1792648858724,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792649002341,
+            "next_attempt_ms": 1792649062339,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792649191235,
+            "next_attempt_ms": 1792649251234,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792649393139,
+            "next_attempt_ms": 1792649453137,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792649574560,
+            "next_attempt_ms": 1792649634559,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          },
+          {
+            "at_ms": 1792649925544,
+            "next_attempt_ms": 1792649985542,
+            "attempt": 1,
+            "http_status": 429,
+            "retry_after_ms": 60000,
+            "invalid_retry_after": false
+          }
+        ],
+        "external_hash_seconds": 41.72890240000561,
+        "started_utc": "2026-10-22T05:19:20Z"
+      }
+    ],
+    "both_passed": true,
+    "publisher_checksum_supplied": false,
+    "IDM_timing": "Observed Date Added/Last Try Date, including confirmed downloading in File Info before Start click; one-second timestamp precision. Native timer begins at run process launch. Lifecycle comparison, not synchronized socket timing.",
+    "IDM_settings_changed": false,
+    "IDMXL_requested_connections": 4,
+    "excluded_cli_startup_attempts": 2,
+    "IDM_destination_corrected_while_active": true,
+    "IDM_paused_or_restarted": false,
+    "IDMXL_time_reduction_percent": -113.53510009578392,
+    "IDMXL_timing_ms": {
+      "elapsed_ms": 3762869.4686,
+      "probe_ms": 6055.6784,
+      "resume_validation_ms": 726024.8987,
+      "download_ms": 1749934.6024999998,
+      "verification_tail_ms": 58494.48299999999,
+      "final_flush_ms": 0.2199,
+      "publication_ms": 15.721499999999999,
+      "other_ms": 1222343.8646000002
+    },
+    "IDMXL_scheduled_wait_seconds": 1220.321,
+    "IDMXL_transfer_response_histogram_scope": "Completed body transfers; in-flight requests canceled after a rejection and probe responses are not all represented by this histogram. Recovery schedules also cover probe-stage throttling."
+  },
+  "update_qualification": {
+    "isolated": true,
+    "upgrade_passed": true,
+    "history_ids_preserved": true,
+    "completed_file_preserved": true,
+    "same_generation_resume": true,
+    "saved_body_blocks_not_refetched": true,
+    "schema": 7,
+    "backup_schema": 6,
+    "post_migration_failure_keeps_matching_new_binaries_and_database": true,
+    "normal_profile_touched": false
+  },
+  "inventory": {
+    "source_commit": "eb087afaf4011a73f2ba6ea1778d033ccae28abf",
+    "cyclonedx_version": "1.6",
+    "schema_errors": 0,
+    "components": 379,
+    "notice_files": 561,
+    "inventory_sha256": "36c8ce07f2074d1ed2503c546d508e9dbe6546aa3f791441ff2a9fd175128e2b",
+    "notice_zip_sha256": "a21a13300e9b9f722b88c3f901c0ccf095536b5fdb9368febfa111ed9844b151",
+    "legal_clearance_claimed": false
+  },
+  "payload_cleanup": {
+    "large_payloads_remaining": 0,
+    "update_payloads_remaining": 0,
+    "completed_and_owned_partials_deleted": true
+  },
+  "limits": [
+    "One public source and one fresh run per application, fixed order; no repeated randomized large-file sample.",
+    "User stated 80 Mbps service; ISP shaping, server/CDN load and other traffic were not controlled.",
+    "No independent publisher checksum; separate disk SHA-256 scans and ZIP CRC checks establish file consistency.",
+    "Four-connection public test differs from the earlier failed eight-ceiling test; do not attribute a changed outcome solely to recovery code.",
+    "Controlled ten-minute cooldown persistence uses isolated clock/deadline simulation; separate real HTTP waits also pass.",
+    "No new real-browser waiting UI click-through, production signing or physical power-loss certification."
+  ],
+  "status": "passed",
+  "ended_utc": "2026-10-22T06:23:24Z"
+}

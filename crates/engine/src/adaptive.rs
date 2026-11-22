@@ -5,14 +5,14 @@ pub(crate) struct Controller {
     limit: usize,
     samples: Vec<f64>,
     baseline: Option<f64>,
-    trial: Option<f64>,
+    trial: Option<(f64, usize)>,
     cooldown: u8,
     regressions: u8,
 }
 impl Controller {
     pub(crate) fn new(ceiling: usize) -> Self {
         Self {
-            ceiling: ceiling.clamp(1, 4),
+            ceiling: ceiling.clamp(1, 8),
             limit: 1,
             samples: Vec::with_capacity(2),
             baseline: None,
@@ -46,13 +46,17 @@ impl Controller {
             self.cooldown -= 1;
             return;
         }
-        if let Some(base) = self.trial.take() {
+        if let Some((base, previous)) = self.trial.take() {
             if rate < base * 1.10 {
-                self.limit = self.limit.saturating_sub(1).max(1);
+                self.limit = previous;
                 self.baseline = Some(base);
                 self.cooldown = 5;
             } else {
                 self.baseline = Some(rate);
+                if self.limit < self.ceiling {
+                    self.trial = Some((rate, self.limit));
+                    self.limit = (self.limit * 2).min(self.ceiling);
+                }
             }
             return;
         }
@@ -69,8 +73,8 @@ impl Controller {
         self.regressions = 0;
         self.baseline = Some(rate);
         if rate > 0.0 && self.limit < self.ceiling {
-            self.trial = Some(rate);
-            self.limit += 1;
+            self.trial = Some((rate, self.limit));
+            self.limit = (self.limit * 2).min(self.ceiling);
         }
     }
 }
@@ -126,5 +130,16 @@ mod tests {
             controller.sample(80.0);
         }
         assert_eq!(controller.limit(), 1);
+    }
+    #[test]
+    fn geometric_trials_reach_eight_and_roll_back_to_last_good_limit() {
+        let mut controller = Controller::new(8);
+        for rate in [100., 100., 200., 200., 400., 400.] {
+            controller.sample(rate);
+        }
+        assert_eq!(controller.limit(), 8);
+        controller.sample(400.);
+        controller.sample(400.);
+        assert_eq!(controller.limit(), 4);
     }
 }

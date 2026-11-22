@@ -1,0 +1,402 @@
+{
+  "runtime": {
+    "source_commit": "0bfe65c3ee2e3c326be7fe871d10495b5293b740",
+    "engine_sha256": "b698214fe691ca39b5ececbb36d1af980f12540e4dba1e6fa416225bfa49d10e",
+    "desktop_sha256": "453a8df17010c93d3bd0fc5dce26064016e845c06cc53e733c66fa6d4f5f3aaa",
+    "installer_sha256": "ca9045da8fc13bb65e94d2b4edf1b0931184a4376d89704c704ac11100814e00",
+    "extension_version": "0.1.6",
+    "schema": 7,
+    "normal_session_updated": false,
+    "unique_checks_before_large_tests": 218,
+    "created_utc": "2026-10-22T12:32:54.073184+00:00"
+  },
+  "checks": {
+    "rust": 68,
+    "ordinary_python": 76,
+    "resource": 1,
+    "node": 74,
+    "total": 219,
+    "ci_run": 39779365305,
+    "ci_head_sha": "0bfe65c3ee2e3c326be7fe871d10495b5293b740",
+    "ci_conclusion": "success"
+  },
+  "public_runs": [
+    {
+      "app": "IDMXL",
+      "label": "native-r1",
+      "bytes": 14004054153,
+      "connections": 4,
+      "status": "passed",
+      "started_utc": "2026-10-22T14:54:35Z",
+      "completed_utc": "2026-10-22T15:24:32Z",
+      "seconds": 1796.4863681000134,
+      "mbps": 62.361972355229675,
+      "mode": "sequential",
+      "requests": "1",
+      "failed_requests": "0",
+      "database_integrity": "ok",
+      "sha256": "73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d",
+      "zip": {
+        "entries": 7,
+        "uncompressed_bytes": 14106266173,
+        "crc_passed": true,
+        "extracted": false
+      },
+      "cleanup": [
+        {
+          "file": "native-r1.zip",
+          "bytes": 14004054153,
+          "deleted": true
+        }
+      ],
+      "external_hash_seconds": 32.82540180001524
+    },
+    {
+      "app": "IDM",
+      "label": "idm-r2",
+      "bytes": 14004054153,
+      "connections": 4,
+      "status": "passed",
+      "started_utc": "2026-10-23T11:47:20.101Z",
+      "completed_utc": "2026-10-23T12:19:23Z",
+      "seconds": 1923.3507292114082,
+      "mbps": 58.248571891999305,
+      "sha256": "73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d",
+      "zip": {
+        "entries": 7,
+        "uncompressed_bytes": 14106266173,
+        "crc_passed": true,
+        "extracted": false
+      },
+      "cleanup": [
+        {
+          "file": "idm-r2.zip",
+          "bytes": 14004054153,
+          "deleted": true
+        }
+      ],
+      "external_hash_seconds": 47.21908589999657
+    },
+    {
+      "app": "IDMXL",
+      "label": "native-r2",
+      "bytes": 14004054153,
+      "connections": 4,
+      "status": "passed",
+      "started_utc": "2026-10-23T12:20:49Z",
+      "completed_utc": "2026-10-23T12:47:46Z",
+      "seconds": 1617.2980723000364,
+      "mbps": 69.27135766919783,
+      "mode": "sequential",
+      "requests": "1",
+      "failed_requests": "0",
+      "database_integrity": "ok",
+      "sha256": "73f98f72b4eb42b7a644435de20e53e626fe2947d1b21f17dec7f72fed51e28d",
+      "zip": {
+        "entries": 7,
+        "uncompressed_bytes": 14106266173,
+        "crc_passed": true,
+        "extracted": false
+      },
+      "cleanup": [
+        {
+          "file": "native-r2.zip",
+          "bytes": 14004054153,
+          "deleted": true
+        }
+      ],
+      "external_hash_seconds": 33.21238819998689
+    }
+  ],
+  "primary_pair": {
+    "native": "native-r2",
+    "idm": "idm-r2",
+    "order": [
+      "IDM",
+      "IDMXL"
+    ],
+    "time_difference_percent": -15.912472554439205,
+    "practical_tolerance_percent": 5,
+    "within_practical_tolerance": false,
+    "same_session": true,
+    "statistical_or_universal_claim": false,
+    "match_or_better_under_practical_target": true
+  },
+  "interrupted_attempt": {
+    "label": "idm-r1",
+    "included": false,
+    "reason": "Setup/monitor interrupted before a completed owned file; no valid speed result."
+  },
+  "native_metrics": {
+    "elapsed_ms": 1617194.5362,
+    "other_ms": 26.449399999981818,
+    "probe_ms": 443.3438,
+    "resume_validation_ms": 0.0,
+    "resume_validated_bytes": 0,
+    "validation_reuses": 0,
+    "validation_reused_bytes": 0,
+    "download_ms": 1536371.5863,
+    "final_flush_ms": 0.0761,
+    "verification_tail_ms": 80323.46389999999,
+    "publication_ms": 29.616699999999998,
+    "checkpoint_flush_ms": 0.0,
+    "checkpoint_commit_ms": 0.0,
+    "request_accounting_ms": 0.0,
+    "callback_write_ms": 66154.1247001021,
+    "callback_hash_ms": 61870.5882993521,
+    "storage_write_ms": 0.0,
+    "storage_hash_ms": 0.0,
+    "storage_drain_ms": 0.0,
+    "storage_queue_peak_bytes": 0,
+    "storage_backpressure_events": 0,
+    "requests": 1,
+    "finished_requests": 1,
+    "new_connections": 1,
+    "checkpoint_batches": 0,
+    "checkpoint_blocks": 0,
+    "checkpoint_target_bytes": 0,
+    "checkpoint_interval_ms": 0,
+    "http_versions": {
+      "HTTP/2": 1
+    },
+    "http_statuses": {
+      "200": 1
+    },
+    "response_events": [
+      {
+        "at_ms": 1792759586031,
+        "offset": null,
+        "length": null,
+        "http_status": 200,
+        "retry_after_ms": null,
+        "invalid_retry_after": false,
+        "attempt": 1,
+        "concurrency": 1
+      }
+    ],
+    "recovery_schedules": [],
+    "request_dns_ms": 0.767,
+    "request_connect_ms": 10.241999999999999,
+    "request_tls_ms": 34.349,
+    "request_first_byte_ms": 901.871,
+    "status": "completed"
+  },
+  "controlled": {
+    "status": "passed",
+    "bytes": 21474836737,
+    "sha256": "cc0d8604c1365e10356db6feb0113094da719f1d63c189a8a11b58c143b03030",
+    "phases": [
+      {
+        "name": "pause-phase",
+        "seconds": 202.2669639000087,
+        "peak_working_set_bytes": 33837056,
+        "exit_code": 0,
+        "last_status": {
+          "state": "paused",
+          "received": 5421121088,
+          "durable": 5419040768,
+          "speed": 0,
+          "generation": 1
+        }
+      },
+      {
+        "name": "process-loss-phase",
+        "seconds": 254.54885130000184,
+        "peak_working_set_bytes": 34091008,
+        "exit_code": 1,
+        "last_status": {
+          "state": "downloading",
+          "received": 10855365978,
+          "durable": 10854858752,
+          "speed": 125955672,
+          "generation": 1
+        }
+      },
+      {
+        "name": "final-resume",
+        "seconds": 554.2359759999963,
+        "peak_working_set_bytes": 36745216,
+        "exit_code": 0,
+        "last_status": {
+          "state": "completed",
+          "received": 21474836737,
+          "durable": 21474836737,
+          "speed": 0,
+          "generation": 1
+        }
+      }
+    ],
+    "same_generation": true,
+    "saved_bytes_before_final_resume": 10854858752,
+    "saved_body_blocks_not_refetched": true,
+    "independent_hash_seconds": 56.89433590002591,
+    "failed_requests": "0",
+    "mode": "ranged",
+    "database_integrity": "ok"
+  },
+  "controlled_cleanup": [
+    {
+      "file": "controlled-final\\generated-20GiB-plus-\u6587\u4ef6.bin",
+      "bytes": 21474836737,
+      "deleted": true
+    }
+  ],
+  "update": {
+    "normal_history_touched": false,
+    "isolated_test": true,
+    "upgrade": {
+      "passed": true,
+      "old_engine_sha256": "1f1a8f747be468f941cdae6ece69f2c10f4c4e73184ba6e791ee9cc3fac707fd",
+      "new_engine_sha256": "b698214fe691ca39b5ececbb36d1af980f12540e4dba1e6fa416225bfa49d10e",
+      "history_ids_preserved": true,
+      "completed_file_preserved": true,
+      "saved_bytes_before_update": "2097152",
+      "same_generation_resume": true,
+      "saved_body_blocks_not_refetched": true,
+      "sha256": "58dfe06df0e520154f4c697b92a2909808e143dfe5cfaa578ce365396d5974b3",
+      "schema": 7,
+      "backup_schema": 6,
+      "helper_receipt": {
+        "success": true,
+        "isolated_test": true,
+        "extension_version": "0.1.6",
+        "history_ids_preserved": true,
+        "native_history_count": 2,
+        "queue_was_running": false,
+        "queue_restored": false,
+        "engine_sha256": "b698214fe691ca39b5ececbb36d1af980f12540e4dba1e6fa416225bfa49d10e",
+        "desktop_sha256": "453a8df17010c93d3bd0fc5dce26064016e845c06cc53e733c66fa6d4f5f3aaa",
+        "runtime_files_verified": 14,
+        "registry_changed": false,
+        "completed_utc": "2026-10-22T12:36:19.6306392Z"
+      }
+    },
+    "post_migration_failure": {
+      "passed": true,
+      "new_engine_and_schema_kept_together": true,
+      "history_readable": true,
+      "old_schema_backup_retained": true,
+      "failure_injected_only_in_isolated_helper": true
+    },
+    "cleanup": [
+      {
+        "path": "upgrade\\resumed.bin",
+        "bytes": 67108864,
+        "deleted": true
+      },
+      {
+        "path": "upgrade\\completed.bin",
+        "bytes": 67108864,
+        "deleted": true
+      }
+    ],
+    "payloads_remaining": []
+  },
+  "cooldown": {
+    "bytes": 1073742081,
+    "order": [
+      "previous",
+      "candidate",
+      "candidate",
+      "previous"
+    ],
+    "fixed_connections": 1,
+    "fixed_request_mib": 4,
+    "rejections_at_tail": 3,
+    "runs": [
+      {
+        "engine": "previous",
+        "seconds": 84.16926099998818,
+        "sha256": "4e8417a76e107c5f839091d69a2d52ac938074a53b25bedec4b1a711d457564d",
+        "saved_prefix_not_refetched": true,
+        "resume_validation_ms": 15354.2783,
+        "resume_validated_bytes": null,
+        "validation_reuses": null,
+        "validation_reused_bytes": null,
+        "verification_tail_ms": 4645.102500000001,
+        "cleanup": [
+          {
+            "file": "payload.bin",
+            "bytes": 1073742081,
+            "deleted": true
+          }
+        ]
+      },
+      {
+        "engine": "candidate",
+        "seconds": 63.33623689999513,
+        "sha256": "4e8417a76e107c5f839091d69a2d52ac938074a53b25bedec4b1a711d457564d",
+        "saved_prefix_not_refetched": true,
+        "resume_validation_ms": 14.151399999999997,
+        "resume_validated_bytes": 0,
+        "validation_reuses": 3,
+        "validation_reused_bytes": 3221225472,
+        "verification_tail_ms": 0.2816,
+        "cleanup": [
+          {
+            "file": "payload.bin",
+            "bytes": 1073742081,
+            "deleted": true
+          }
+        ]
+      },
+      {
+        "engine": "candidate",
+        "seconds": 64.22088959999382,
+        "sha256": "4e8417a76e107c5f839091d69a2d52ac938074a53b25bedec4b1a711d457564d",
+        "saved_prefix_not_refetched": true,
+        "resume_validation_ms": 11.4513,
+        "resume_validated_bytes": 0,
+        "validation_reuses": 3,
+        "validation_reused_bytes": 3221225472,
+        "verification_tail_ms": 0.2679,
+        "cleanup": [
+          {
+            "file": "payload.bin",
+            "bytes": 1073742081,
+            "deleted": true
+          }
+        ]
+      },
+      {
+        "engine": "previous",
+        "seconds": 84.23797550000018,
+        "sha256": "4e8417a76e107c5f839091d69a2d52ac938074a53b25bedec4b1a711d457564d",
+        "saved_prefix_not_refetched": true,
+        "resume_validation_ms": 14194.677800000001,
+        "resume_validated_bytes": null,
+        "validation_reuses": null,
+        "validation_reused_bytes": null,
+        "verification_tail_ms": 4704.2271,
+        "cleanup": [
+          {
+            "file": "payload.bin",
+            "bytes": 1073742081,
+            "deleted": true
+          }
+        ]
+      }
+    ],
+    "mean_seconds": {
+      "previous": 84.20361824999418,
+      "candidate": 63.77856324999448
+    },
+    "interrupted_attempt": {
+      "included": false,
+      "completed": false,
+      "owned_partial_bytes_deleted": 1073742081,
+      "logs_preserved": true
+    }
+  },
+  "inventory": {
+    "source_commit": "0bfe65c3ee2e3c326be7fe871d10495b5293b740",
+    "cyclonedx_version": "1.6",
+    "schema_errors": 0,
+    "components": 379,
+    "notice_files": 561,
+    "inventory_sha256": "88644bef0d4a592e78dc70a3003756f1f76392a8592b1e591291c8f2f777ecf3",
+    "notice_zip_sha256": "1dde44a32f2c36d7c7bca85b626186d1e6a6bfb3dbca10c07d11257126822eb8",
+    "legal_clearance_claimed": false
+  },
+  "normal_installation_updated": false
+}

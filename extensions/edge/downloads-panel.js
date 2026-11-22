@@ -18,7 +18,7 @@ export async function requestDownloads(api, kind = "jobs", fields = {}) {
   return reply.jobs;
 }
 export function downloadButtons(job) {
-  const active = ["downloading", "verifying", "pausing"].includes(job.state);
+  const active = ["downloading", "verifying", "pausing", "waiting"].includes(job.state);
   const terminal = [
     "completed",
     "canceled",
@@ -79,7 +79,8 @@ export function startDownloadPanel(api, doc) {
         progress = doc.createElement("progress"),
         actions = doc.createElement("div");
       name.textContent = String(job.name || "Download");
-      detail.textContent = `${job.mode === "browser" ? "Browser transfer · " : ""}${job.state} · ${size(job.received_bytes)} / ${size(job.total_bytes)}`;
+      const state=job.state === "waiting" ? `Waiting for server · resumes automatically${job.retry_not_before ? ` in ${Math.max(0,Math.ceil((Number(job.retry_not_before)-Date.now())/1000))}s` : ""}` : job.state;
+      detail.textContent = `${job.mode === "browser" ? "Browser transfer · " : ""}${state} · ${size(job.received_bytes)} / ${size(job.total_bytes)}`;
       progress.max = 100;
       if (Number(job.total_bytes) > 0)
         progress.value = Math.min(

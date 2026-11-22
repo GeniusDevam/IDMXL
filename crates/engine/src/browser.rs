@@ -335,6 +335,8 @@ impl Store {
                     queue_window_open: true,
                     transfer_requests: "0".into(),
                     failed_requests: "0".into(),
+                    last_http_status: None,
+                    recovery_attempts: 0,
                 }
             })
             .collect())

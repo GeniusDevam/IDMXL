@@ -1,6 +1,44 @@
 # Initial architecture decisions
 
-These ADRs retain milestone history. Later decisions supersede earlier scope statements; ADR-011 records the current recurring-hours and import behavior.
+These ADRs retain milestone history. Later decisions supersede earlier scope statements. ADR-015 and PERFORMANCE.md describe the current transfer pipeline.
+
+## ADR-015: separate network leases, recovery blocks and final verification
+
+Recovery blocks stay at 1 MiB for compatibility with existing profiles. Larger
+files group blocks into shrinking 1–16 MiB conditional HTTP leases. Request
+failure budgets are canonical per recovery block, while start/failure totals
+count actual requests; regrouping after interruption cannot replenish a budget.
+Complete written blocks can be checkpointed during an active multi-block lease.
+Retries request only its unfinished suffix, preserving immutable completed bytes.
+
+Network callbacks feed a 16 MiB bounded FIFO and pause without accepting a
+callback when it is full. One storage worker coalesces writes into bounded
+128 KiB per-range buffers, hashes written blocks and owns the durable batches.
+End markers precede retry data in that FIFO, so a stale partial buffer cannot
+overwrite a new lease. Complete written-prefix notifications feed verification;
+queued network bytes are never presented as durable. Checkpoints batch
+at 32 MiB or 2 seconds for files at least 32 MiB (otherwise 8 MiB or 500 ms),
+checked between queued storage messages. Batches flush file data first, then commit
+extent records and an idempotent durable-byte delta in one FULL transaction.
+Pause, completion and transfer errors flush pending complete blocks. Volatile
+progress and request-start counters use an independent NORMAL SQLite connection,
+so they do not force a FULL sync. Admission acquires writer ownership before
+reading the committed retry budget; failed budgets and critical recovery and
+publication transactions retain FULL synchronization. Power loss can roll back
+recent start counters and uncommitted progress, never a durable failed budget.
+
+An independent reader thread computes standard whole-file SHA-256 over the
+growing immutable prefix. It waits for holes, checks cancellation between reads,
+and joins before publication. Windows denies external staging writers/deletion
+while allowing that reader. Resume revalidates saved extents before announcing
+them. This avoids both shared-cursor races and treating chunk hashes as a whole
+SHA-256. Process-crash tests do not simulate physical storage power failure.
+
+Admission refills ready slots before waiting. Adaptive trials explore 1/2/4/8
+with measured gain, rollback and throttling cooldown; existing/default ceilings
+remain four unless explicitly changed. CLI-only numeric diagnostics and H1/H2
+preferences support reproducible experiments. HTTP/3, learned network profiles,
+mirrors and speculative work stealing require separate qualification.
 
 ## ADR-001: keep the planned engine stack
 
